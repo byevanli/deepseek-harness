@@ -41,7 +41,7 @@ The selected blank **New Session** retains its provisional first slot and cannot
 
 ### Workspace hierarchy
 
-Choose **Add workspace**, enter a name, and add one or more directories before saving. The first directory is primary; **Make primary** explicitly selects another. The primary cannot be removed until another is selected, and at least one directory remains. **Edit workspace** saves the same form atomically. Cancel preserves the saved configuration; failures keep the draft visible. Directory edits apply to new chats only. Workspace Tree grouping uses the current primary directory, while existing chat membership stays unchanged.
+Choose **Add workspace**, enter a name, and add one or more directories before saving. Each directory row shows the folder name and a muted full path, and hovering or keyboard focus shows the full path, so same-named folders remain distinguishable. The first directory is primary; **Make primary**, shown on row hover or keyboard focus, explicitly selects another. The primary cannot be removed until another is selected, and at least one directory remains. **Edit workspace** saves the same form atomically. Cancel preserves the saved configuration; failures keep the draft visible. Directory edits apply to new chats only. Workspace Tree grouping uses the current primary directory, while existing chat membership stays unchanged.
 
 Hierarchy uses registered canonical paths only. It does not scan for projects or resolve symlink aliases. Nesting does not change Session working directories, logs, or Workspace membership. Deleting a parent Workspace leaves its child Workspaces registered and places them under their next registered ancestor, or at the root.
 

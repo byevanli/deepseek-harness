@@ -1,0 +1,351 @@
+/* 工作区编辑弹窗：使用 Modal 的 headless 卡片，头部、正文、底部由本包排版。
+ * 双类选择器保证宽度与内边距覆盖 Modal 卡片的默认值，与样式加载顺序无关。 */
+.dialog.dialog {
+  width: min(560px, 100%);
+  max-height: 100%;
+  gap: 0;
+  padding: 0;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 22px 16px 16px 24px;
+}
+
+.title {
+  margin: 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 20px;
+  line-height: 28px;
+  font-weight: 500;
+  color: var(--dsw-alias-label-primary);
+}
+
+/* 图标按钮共用：无边框，悬停填充，键盘焦点显示环。 */
+.close,
+.remove {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  border-radius: var(--dsw-radius-sm);
+  background: transparent;
+  color: var(--dsw-alias-label-tertiary);
+  cursor: pointer;
+}
+
+.close:hover:not(:disabled),
+.remove:hover:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+}
+
+.close:disabled,
+.remove:disabled,
+.makePrimary:disabled,
+.addPill:disabled,
+.addRow:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
+.close:focus-visible,
+.remove:focus-visible,
+.makePrimary:focus-visible,
+.addPill:focus-visible,
+.directoryText:focus-visible {
+  outline: var(--dsw-focus-ring-width) solid var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary));
+  outline-offset: 1px;
+}
+
+/* 内容较多或窗口较矮时只滚动正文，头部与底部操作保持可见。 */
+.body {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 24px;
+}
+
+/* 名称输入：左侧图标区与输入区以竖线分隔；焦点反馈来自真实的 focus-within。 */
+.nameField {
+  box-sizing: border-box;
+  display: flex;
+  align-items: stretch;
+  flex: none;
+  height: 40px;
+  border: 1px solid var(--dsw-alias-border-l3);
+  border-radius: var(--dsw-radius-md);
+  background: transparent;
+}
+
+.nameField:focus-within {
+  border-color: var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary));
+  box-shadow: 0 0 0 1px var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary));
+}
+
+.nameIcon {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  border-right: 1px solid var(--dsw-alias-border-l2);
+  color: var(--dsw-alias-label-secondary);
+}
+
+.nameInput {
+  flex: 1;
+  min-width: 0;
+  padding: 0 12px;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  font: inherit;
+  font-size: 14px;
+  line-height: 22px;
+}
+
+.nameInput::placeholder {
+  color: var(--dsw-alias-label-secondary);
+}
+
+.nameInput:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.sectionLabel {
+  margin: 20px 0 8px;
+  font-size: 13px;
+  line-height: 20px;
+  font-weight: 500;
+  color: var(--dsw-alias-label-primary);
+}
+
+/* 空状态与目录列表共用同一张浅边框圆角卡片。 */
+.empty,
+.card {
+  box-sizing: border-box;
+  flex: none;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: var(--dsw-radius-md);
+}
+
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 28px 16px;
+}
+
+.emptyText {
+  margin: 0;
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--dsw-alias-label-secondary);
+  text-align: center;
+}
+
+.addPill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 14px 0 12px;
+  border: none;
+  border-radius: var(--dsw-radius-xl);
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+  font: inherit;
+  font-size: 13px;
+  line-height: 20px;
+  cursor: pointer;
+}
+
+.addPill:hover:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-active);
+}
+
+.card {
+  overflow: hidden;
+}
+
+.directories {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+/* 目录行固定高度，名称优先显示，完整路径作为弱化辅助信息截断。 */
+.directoryRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 48px;
+  padding: 0 12px 0 16px;
+}
+
+.directoryRow + .directoryRow,
+.addRow {
+  border-top: 1px solid var(--dsw-alias-border-l1);
+}
+
+.rowIcon {
+  flex: none;
+  display: inline-flex;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.directoryText {
+  flex: 1;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.directoryName,
+.directoryPath {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.directoryName {
+  flex: 0 1 auto;
+  max-width: 70%;
+  font-size: 14px;
+  line-height: 22px;
+  color: var(--dsw-alias-label-primary);
+}
+
+.directoryPath {
+  flex: 1 1 0;
+  min-width: 0;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.primaryBadge,
+.makePrimary {
+  flex: none;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  height: 26px;
+  padding: 0 10px;
+  border-radius: var(--dsw-radius-sm);
+  font: inherit;
+  font-size: 12px;
+  line-height: 18px;
+  white-space: nowrap;
+}
+
+.primaryBadge {
+  border: 1px solid var(--dsw-alias-border-l3);
+  color: var(--dsw-alias-label-secondary);
+}
+
+.makePrimary {
+  border: 1px solid transparent;
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+  cursor: pointer;
+}
+
+.makePrimary:hover:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-active);
+}
+
+/* 有悬停能力的指针设备上，“设为主要”在行悬停或键盘焦点进入行时出现；触屏始终显示。 */
+@media (hover: hover) {
+  .makePrimary,
+  .makePrimary:disabled {
+    opacity: 0;
+  }
+
+  .directoryRow:hover .makePrimary:not(:disabled),
+  .directoryRow:focus-within .makePrimary:not(:disabled) {
+    opacity: 1;
+  }
+}
+
+/* 卡片内最后一行：整行是一个按钮。 */
+.addRow {
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  height: 48px;
+  padding: 0 16px;
+  border-right: none;
+  border-bottom: none;
+  border-left: none;
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  font: inherit;
+  font-size: 14px;
+  line-height: 22px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.addRow:hover:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.addRow:focus-visible {
+  outline: var(--dsw-focus-ring-width) solid var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary));
+  outline-offset: -2px;
+}
+
+/* 规则说明为短灰色辅助文字，限制行宽避免占据视觉重心。 */
+.notes {
+  margin-top: 10px;
+  max-width: 46em;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.notes p {
+  margin: 0;
+}
+
+.error {
+  margin-top: 8px;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 20px 24px 24px;
+}
+
+/* 双类选择器保证弱化文字色覆盖 Button 的默认文字色。 */
+.cancel.cancel {
+  color: var(--dsw-alias-label-secondary);
+}
