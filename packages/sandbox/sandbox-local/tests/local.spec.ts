@@ -490,3 +490,14 @@ describe('the windows-acl probe (runner invocation contract)', () => {
     expect(confined.argv.slice(0, 2)).toEqual([process.execPath, builtEntry])
   })
 })
+
+
+it('all profile dialects grant the captured secondary and deny it under read-only', () => {
+  const policy: SandboxPolicy = { ...WW, additionalDirectories: ['/secondary'] }
+  expect(bwrapProfileArgs(policy)).toContain('/secondary')
+  expect(landlockProfileArgs(policy)).toContain('/secondary')
+  expect(seatbeltProfileArgs(policy)[1]).toContain('(subpath "/secondary")')
+  for (const profile of [bwrapProfileArgs, landlockProfileArgs, seatbeltProfileArgs]) {
+    expect(profile({ ...policy, mode: 'read-only' }).join(' ')).not.toContain('/secondary')
+  }
+})

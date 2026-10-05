@@ -75,6 +75,8 @@ kind: "package-reference"
 
 运行时切换是在对应会话日志中追加的一条仅写入日志的 `sandbox/mode` 事件——切换本身就是事件，任何机制都不会在带外修改模式状态。`effective = explicit grant ?? fold(events) ?? deployment default`，因此覆盖通过回放跨重启保留，两个会话也绝不会看到彼此状态。工作区标识无需事件：创建时记录的不可变 `SessionHeader.cwd` 是该会话每次调用使用的根。事件仍只进入日志；在每次请求前，归属方会把当前事实贡献给完整运行时上下文快照，agent loop（智能体循环）将该快照记录为一条带来源的 `user/message`。
 
+新会话在未发布的 setup 中通过 `setSessionDirectories()` 捕获附加目录。`sandbox/directories` 事件与 `sandboxDirectories` 投影在回放时保留列表；没有该事件的会话不使用附加目录。工作区编辑仅影响未来会话。所有模式都会描述捕获的目录，只读模式仍拒绝修改。浏览器安全的 `types` 导出声明事件和投影，不加载宿主服务。
+
 ### 模型可见文本
 
 `sandbox:policy` 贡献说明该模式与具体能力无关的文件操作约定，以及 `workspace-write` 下已记录的会话工作区。它不枚举已挂载能力；工具插件保留特定于操作的拒绝与升权引导，批准策略单独贡献给同一份快照，计划引导仍由 `dsh-plan-mode` 的系统段落管理。

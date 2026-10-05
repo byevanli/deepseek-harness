@@ -1,6 +1,6 @@
 /** The `list` endpoint: the same containment gates as `read`, plus the entry cap. */
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { mkdir, rm, symlink, writeFile } from 'node:fs/promises'
+import { mkdir, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { failureOf, openWorkspace, signal, type Harness } from './harness.ts'
 
@@ -136,5 +136,26 @@ describe('workspaceFiles.list — gates', () => {
   it('refuses an empty path as a bad request', async () => {
     const failure = await failureOf(endpoint().list(harness.scope, '', signal()))
     expect(failure.code).toBe('gateway/bad-request')
+  })
+})
+
+
+describe('workspaceFiles.list — captured additional directories', () => {
+  it('lists an additional root with its own relative path and refuses its parent', async () => {
+    await mkdir(join(outside, 'docs'))
+    await writeFile(join(outside, 'docs', 'guide.md'), 'hello')
+    const scope = { ...harness.scope, additionalDirectories: [outside] }
+    const service = endpoint()
+    const result = await service.list(scope, join(outside, 'docs'), signal())
+    expect(result.path).toBe('docs')
+    expect(result.root).toBe(await realpath(outside))
+    expect(result.entries.map(entry => entry.name)).toEqual(['guide.md'])
+    expect((await failureOf(service.list(scope, join(outside, '..'), signal()))).code).toBe('workspace-file/outside-workspace')
+  })
+
+  it('keeps an old session single-root when another session captures a directory', async () => {
+    const service = endpoint()
+    await expect(service.list({ ...harness.scope, additionalDirectories: [outside] }, outside, signal())).resolves.toMatchObject({ path: '' })
+    expect((await failureOf(service.list(harness.scope, outside, signal()))).code).toBe('workspace-file/outside-workspace')
   })
 })

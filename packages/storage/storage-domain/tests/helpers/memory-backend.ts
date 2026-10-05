@@ -82,6 +82,7 @@ class MemoryKvUnit implements KvUnit {
   async putRecord(table: string, key: string, value: unknown): Promise<void> {
     this.assertOpen()
     this.pool.consumeInjectedFailure()
+    this.pool.versions.set(this.descriptor.name, this.descriptor.version)
     let records = this.medium.tables.get(table)
     if (records === undefined) {
       records = new Map()
@@ -93,12 +94,14 @@ class MemoryKvUnit implements KvUnit {
   async deleteRecord(table: string, key: string): Promise<void> {
     this.assertOpen()
     this.pool.consumeInjectedFailure()
+    this.pool.versions.set(this.descriptor.name, this.descriptor.version)
     this.medium.tables.get(table)?.delete(key)
   }
 
   async setGlobal(value: unknown): Promise<void> {
     this.assertOpen()
     this.pool.consumeInjectedFailure()
+    this.pool.versions.set(this.descriptor.name, this.descriptor.version)
     this.medium.global = value
   }
 
@@ -136,7 +139,8 @@ export class MemoryStorageBackend implements StorageBackend {
         const stamped = this.pool.versions.get(descriptor.name)
         if (stamped === undefined) {
           this.pool.versions.set(descriptor.name, descriptor.version)
-        } else if (stamped !== descriptor.version) {
+        } else if (stamped !== descriptor.version
+          && !(stamped < descriptor.version && descriptor.compatibleVersions?.includes(stamped))) {
           throw new StorageError(
             'version-mismatch',
             `memory unit '${descriptor.name}' is stamped v${stamped}, descriptor wants v${descriptor.version}`,

@@ -13,6 +13,8 @@
 
 import { accessSync, constants, statSync } from 'node:fs'
 import { isAbsolute, resolve } from 'node:path'
+import type { Agent } from '@deepseek-ai/dsh-agent'
+import type { SandboxPolicyService } from '@deepseek-ai/dsh-sandbox-policy'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { SubagentCapabilities, SubagentResult, SubagentRun, SubagentStopReason } from './types.ts'
 
@@ -255,5 +257,18 @@ export function subprocessRunHandle(parts: SubprocessRunHandleParts): SubagentRu
       disposal = parts.teardown()
       return disposal
     },
+  }
+}
+
+
+/**
+ * 拒绝无法将附加目录配置传递给独立运行时的委派。
+ * @param parent - 发起委派的父 Agent。
+ * @param policy - 提供方挂载的会话目录策略，未挂载时无附加目录配置。
+ * @throws 父会话含附加目录且提供方没有目录传递协议时拒绝。
+ */
+export function assertSingleDirectoryParent(parent: Agent, policy?: SandboxPolicyService): void {
+  if ((policy?.directoriesOf(parent.session).length ?? 0) > 0) {
+    throw new Error('external subagent provider cannot inherit additional session directories')
   }
 }

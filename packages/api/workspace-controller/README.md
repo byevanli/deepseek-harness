@@ -6,6 +6,10 @@ kind: "package-reference"
 
 English | [中文](README.zh.md)
 
+`workspace.create({ path, title?, additionalDirectories? })` accepts the legacy path-only request. `workspace.update({ workspaceId, path, title, additionalDirectories })` and `ctx.workspaces.update(...)` save a complete configuration atomically. Every view includes `additionalDirectories`. Names are trimmed and must be nonblank and unique. Primary selection is explicit; newly added directories must exist, while unchanged saved missing directories remain retainable. Failed saves preserve the previous record and Session order.
+
+Explicit creation over an existing primary directory must match the saved name and secondary directories or rejects `workspace/configuration-conflict`. A path-only request reuses the existing Workspace without changes.
+
 ## Summary
 
 `@deepseek-ai/dsh-api-workspace-controller` owns the Host `ctx.workspaceController` service and the generated Client `ctx.remote.workspace` namespace. Its Remote methods create, rename, remove, and reorder Workspaces, reorder Sessions within a Workspace, archive and unarchive Sessions from Workspace navigation, and follow the complete Workspace projection. Use it through API Gateway when a Client must change or follow Workspace navigation. The package also owns `ctx.directoryPickerController` and the generated `ctx.remote.directoryPicker` namespace, because the directory-picking seam it carries is abstract and never a Loader entry of its own.

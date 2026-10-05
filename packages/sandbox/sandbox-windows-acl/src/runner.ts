@@ -65,6 +65,8 @@ function fail(detail: string): never {
 
 interface ParsedArgs {
   workspace: string
+  additionalWorkspaces: string[]
+  additionalWriteSids: string[]
   temp: string
   mode: 'read-only' | 'workspace-write'
   writeSid: string | undefined
@@ -74,6 +76,8 @@ interface ParsedArgs {
 }
 
 function parseArgs(raw: string[]): ParsedArgs {
+  const additionalWorkspaces: string[] = []
+  const additionalWriteSids: string[] = []
   let workspace: string | undefined
   let temp: string | undefined
   let mode: string | undefined
@@ -91,6 +95,8 @@ function parseArgs(raw: string[]): ParsedArgs {
     if (value === undefined) fail(`missing value after ${token}`)
     switch (token) {
       case '--workspace': workspace = value; break
+      case '--additional-workspace': additionalWorkspaces.push(value); break
+      case '--additional-write-sid': additionalWriteSids.push(value); break
       case '--temp': temp = value; break
       case '--mode': mode = value; break
       case '--write-sid': writeSid = value; break
@@ -104,7 +110,10 @@ function parseArgs(raw: string[]): ParsedArgs {
   const argv = raw.slice(index)
   const command = argv[0]
   if (command === undefined) fail('missing command after --')
-  return { workspace, temp, mode, writeSid, tempWriteSid: parsedTempWriteSid, command, args: argv.slice(1) }
+  return {
+    workspace, additionalWorkspaces, additionalWriteSids, temp, mode, writeSid,
+    tempWriteSid: parsedTempWriteSid, command, args: argv.slice(1),
+  }
 }
 
 function requireDirectory(label: string, path: string): void {
@@ -118,9 +127,10 @@ async function main(): Promise<number> {
   // Both directories are validated in both modes: a provider bug that passes
   // a bogus root must fail loudly at the runner boundary, never mid-child.
   requireDirectory('--workspace', parsed.workspace)
+  for (const root of parsed.additionalWorkspaces) requireDirectory('--additional-workspace', root)
   requireDirectory('--temp', parsed.temp)
 
-  const seamManaged = parsed.writeSid !== undefined || parsed.tempWriteSid !== undefined
+  const seamManaged = parsed.writeSid !== undefined || parsed.tempWriteSid !== undefined || parsed.additionalWriteSids.length > 0
   if (parsed.mode === 'read-only' && seamManaged) {
     fail('read-only does not accept --write-sid or --temp-write-sid')
   }
@@ -128,8 +138,15 @@ async function main(): Promise<number> {
     fail('workspace-write requires --write-sid and --temp-write-sid together')
   }
   if (parsed.mode === 'workspace-write') {
-    assertTempRootOutsideWorkspace(parsed.workspace, parsed.temp)
+    for (const root of [parsed.workspace, ...parsed.additionalWorkspaces]) assertTempRootOutsideWorkspace(root, parsed.temp)
   }
+
+  if (seamManaged && parsed.additionalWorkspaces.length !== parsed.additionalWriteSids.length) fail('additional workspaces require matching write SIDs')
+  const additionalWriteGrants = parsed.mode === 'read-only' ? [] : parsed.additionalWorkspaces.map((path, index) => {
+    const writeSid = workspaceWriteSid(path)
+    if (seamManaged && parsed.additionalWriteSids[index] !== writeSid) fail('--additional-write-sid does not match --additional-workspace')
+    return { path, writeSid }
+  })
 
   const api = await win32()
   // Ignore this process's own CTRL+C: the confined child (same console) keeps
@@ -161,6 +178,7 @@ async function main(): Promise<number> {
     }
     sandbox = new AclSandbox({
       writableDirs: parsed.mode === 'workspace-write' ? [parsed.workspace] : [],
+      additionalWriteGrants,
       tempDir: privateTempDir,
       mode: parsed.mode,
       ...writeSid === undefined ? {} : { writeSid },

@@ -7,6 +7,8 @@ kind: "package-reference"
 
 English | [中文](README.zh.md)
 
+Explicit `compatibleVersions` accepts only listed versions below the current unit version whose records the owner can read. Single-document JSON and SQLite retain the stored stamp on read and atomically stamp the current version with a successful data write; a failed write retains the previous data and version. Undeclared or future versions reject. Per-record JSON retains document-level compatibility behavior.
+
 ## Summary
 
 `dsh-storage-sqlite` is a storage backend that hosts every routed unit in one SQLite database file, storing each record as one JSON document per row, registered as backend `sqlite`. A single record update touches exactly one row, which is what makes this the right medium for high-frequency, point-sized writes. Choose it when a domain's data changes often or the deployment prefers one queryable database; choose the JSON backend when the data should be readable as plain files. The backend is host-side only: it contributes no prompt, tool, or schema, so the model and the agent loop never see it.
@@ -54,7 +56,7 @@ Two fields: the database path and the journal mode. `:memory:` opens an in-proce
 
 ### Observable behavior
 
-Missing directories and database files are created owner-only (`0o700`/`0o600`); an existing database keeps its modes. A unit whose stored format version differs from its descriptor rejects `version-mismatch`, and a database stamped with a physical layout version other than the current one rejects outright — no migration, pre-release stance. Failures carry stable `StorageError` codes, and writes are durable once resolved.
+Missing directories and database files are created owner-only (`0o700`/`0o600`); an existing database keeps its modes. A unit whose stored format version is neither current nor an explicitly accepted older version rejects `version-mismatch`, and a database stamped with a physical layout version other than the current one rejects outright — no migration, pre-release stance. Failures carry stable `StorageError` codes, and writes are durable once resolved.
 
 -----
 

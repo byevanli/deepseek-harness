@@ -1,42 +1,7 @@
 /**
- * ui-workspace contracts. Two registrations share this package:
- *
- * - WorkspaceBrowser fills the sidebar shell's `sidebar.workspaces` hole —
- *   the whole browsing region (section header, search, grouped/flat session
- *   list, workspace dialogs). It registers this package's viewing store and
- *   consumes the shell's two-fact owner share (wide / expandSidebar).
- * - WorkspacePicker fills the conversation empty-state hole (menu + error
- *   dialog shared with the browser).
- *
- * Both registrations declare a **directory-flow hole** (`single` kind): the
- * slot a composed picker package's client half fills with its
- * picking interaction — a renderless native-chooser driver or an in-app
- * browsing dialog. ui-workspace owns the trigger (the "Add workspace…"
- * entry, present only while the hole is occupied) and the adoption
- * semantics (`createWorkspace({ path })`, the retryable error dialog,
- * Choose again); the occupant owns everything between `open` and the picked path,
- * including creating a new directory to hand back. That occupant-owned
- * creation is why adding a workspace has a single route: an unoccupied hole
- * leaves the surface with no add affordance at all.
- * Two holes exist because the two menu surfaces are independent slot entries
- * and a hole has exactly one declaring entry — they carry the same owner
- * contract and the same occupant.
- *
- * WorkspaceBrowser also declares the two **Session row action lists**: every
- * row of a Session's "..." menu is an entry of
- * `sidebar.workspaces.session.menu.item`, and every hover button at the row's
- * end is an entry of `sidebar.workspaces.session.row.action`. The shipped
- * actions — pin, rename, fork, archive — are ordinary entries this package
- * registers from `apply`, each carrying its own behavior in its own inject
- * face and reading its own Host state through hooks that face injects, so a
- * client plugin's action lands beside them by `order` and needs nothing from
- * the browser beyond the row identity.
- *
- * The browser entry additionally declares two `list` seats per Session row
- * (`sidebar.session.row.leading` / `sidebar.session.row.hover`) for ambient
- * row decorations. Both take the row's Session identity and nothing else: a
- * session-scoped seat would force a Session binding, which would activate and
- * retain every listed Session.
+ * 工作区界面的插槽与派生属性。侧栏和会话入口共用创建表单，各自拥有目录选择插槽。
+ * 选择器每次返回一个绝对目录；表单收集草稿，保存时一次提交完整配置。
+ * 会话菜单和悬停动作通过独立列表插槽注册，各动作持有自己的状态及行为。
  */
 import type {
   HostObservable, InjectFace, PropsHooks, PropsLocale, PropsRenderSlots, PropsRuntime, PropsStore, SlotHookFactory,
@@ -48,7 +13,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type { SessionSearchResultItem } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { RemoteHostFacts } from '@deepseek-ai/dsh-api-remotes/client'
-import type { SessionActivity, WorkspaceId, WorkspaceView } from '@deepseek-ai/dsh-api-workspace-controller/client'
+import type { SessionActivity, WorkspaceCreateRequest, WorkspaceUpdateRequest, WorkspaceId, WorkspaceView } from '@deepseek-ai/dsh-api-workspace-controller/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { ShortcutCatalogEntry } from '@deepseek-ai/dsh-client-shortcuts/client'
 import type { WorkspaceShortcutState } from '../shortcuts.ts'
@@ -62,9 +27,9 @@ import type { createWorkspaceViewStore } from '../stores.ts'
 export interface DirectoryFlowOwnerProps {
   /** True while a picking interaction is requested; flipping back to false withdraws the request. */
   open: boolean
-  /** True while the owner adopts a picked path (`createWorkspace` in flight); occupants disable their commit affordances. */
+  /** 属主处理目录选择结果时禁用选择器提交操作。 */
   busy: boolean
-  /** The operator picked a directory (absolute host path); the owner adopts it. */
+  /** 用户选择的宿主绝对路径，由属主加入草稿。 */
   onPicked: (path: string) => void
   /** The operator dismissed the interaction; the owner just closes the flow. */
   onCancel: () => void
@@ -258,6 +223,8 @@ export type WorkspaceBrowserInjected = {
   notifyArchivedNotOpenable: () => void
   /** Rename a Host Workspace (rejects on name conflict; resolves on durability). */
   renameWorkspace: (workspaceId: WorkspaceId, title: string) => Promise<void>
+  /** 原子保存名称、主要目录和附加目录。 */
+  updateWorkspace: (input: WorkspaceUpdateRequest) => Promise<WorkspaceView>
   /** Delete only a Host Workspace registration; directory and Session logs remain. */
   deleteWorkspace: (workspaceId: WorkspaceId) => Promise<void>
   /**
@@ -267,8 +234,8 @@ export type WorkspaceBrowserInjected = {
   insertWorkspaceBefore: (workspaceId: WorkspaceId, beforeWorkspaceId?: WorkspaceId) => Promise<void>
   /** Remove a Session from the registry-global archived set (the search results' restore button). */
   unarchiveSession: (sessionId: SessionId) => Promise<void>
-  /** Adopt a picked host directory as a real Workspace before targeting a Session. */
-  createWorkspace: (input: { path: string }) => Promise<WorkspaceView>
+  /** 原子保存名称和目录后返回工作区。 */
+  createWorkspace: (input: WorkspaceCreateRequest) => Promise<WorkspaceView>
 }
 
 /** The browser's declared viewing store handle, shared with the row actions that write view state. */
@@ -471,8 +438,8 @@ export type WorkspaceBrowserProps =
  * supplies the implicit index signature required by the registry.
  */
 export type WorkspacePickerInjected = DirectoryPickingInjected & {
-  /** Adopt a picked host directory as a real Workspace before targeting a Session. */
-  createWorkspace: (input: { path: string }) => Promise<WorkspaceView>
+  /** 原子保存名称和目录后返回工作区。 */
+  createWorkspace: (input: WorkspaceCreateRequest) => Promise<WorkspaceView>
 }
 
 /**

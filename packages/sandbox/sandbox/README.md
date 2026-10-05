@@ -25,6 +25,8 @@ Use `dsh-sandbox` to run a subprocess and everything it spawns under a per-call 
 <a id="use-this-package"></a>
 ## Use this package
 
+A policy may carry `additionalDirectories` alongside its primary `workspaceRoot`. Writable-root derivation includes those captured directories only under workspace-write; read-only continues to return no writable roots.
+
 Compose this service with one backend and a confined consumer, and every command the consumer runs executes under the policy you resolve — you see only the confinement result and its enforcement completeness, never the platform runner.
 
 ### When to choose it

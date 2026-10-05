@@ -25,7 +25,7 @@ Use this package to preview files readable through a Session's filesystem from t
 <a id="use-this-package"></a>
 ## Use this package
 
-Mount the package beside `dsh-fs`, `dsh-sandbox-policy`, the Session store, and the Typert Gateway; the bundle does so right after the Session Controller. Every method takes the Session identity on the wire, so a Client calls `remote.workspaceFiles.read(sessionId, path, range, signal)`, `stat(sessionId, path, signal)`, `readBytes(sessionId, path, options, signal)`, `list(sessionId, path, signal)`, or `changes(sessionId, path, signal)` and never names a root itself. The Host reads a live Session header or uses persistence `stat` for a cold Session; it does not activate an Agent, read the event body, or borrow a parent Session's root. Session persistence is optional for live reads, but without it a cold Session cannot resolve and the Gateway returns `gateway/lookup-not-found`.
+Mount this package with `dsh-fs`, `dsh-sandbox-policy`, Session store and Typert Gateway. Cold Session resolution also requires Session persistence and `sessionQuery`. Each method carries a Session identity; callers never supply grants. Live reads use the session policy; cold reads use a disposable projected observation without activating an Agent. Both recover the same captured directories, independently of current workspace settings.
 
 | Method | Returns | Purpose |
 |---|---|---|
@@ -37,7 +37,9 @@ Mount the package beside `dsh-fs`, `dsh-sandbox-policy`, the Session store, and 
 
 ### Addressing and paths
 
-`read`, `readBytes`, and `stat` accept an absolute path or one relative to the selected Session's workspace root. The composed filesystem decides whether the path is readable; the service does not impose workspace containment on file reads. `readBytes` with `options.baseFile` resolves the relative target `path` from that file's directory, including when either file is outside the workspace. The base file itself accepts an absolute or workspace-relative path. Both files receive the same regular-file checks; an empty target, absolute target, URL, or NUL-containing target is rejected. File results report the absolute path in the filesystem's execution world. `list` remains workspace-scoped and reports the listed directory relative to that root. `changes` uses the same path resolution: file watches follow file-read authority, while directory watches remain workspace-scoped.
+Directory listings and directory watches accept the captured primary or additional roots. A listing returns `path` relative to its containing root and supplies `root` for an additional root. Relative request paths still resolve from the session working directory. File reads and file watches retain the filesystem backend's read authority.
+
+`read`, `readBytes`, and `stat` accept an absolute path or one relative to the selected Session's workspace root. The composed filesystem decides whether the path is readable; the service does not impose workspace containment on file reads. `readBytes` with `options.baseFile` resolves the relative target `path` from that file's directory, including when either file is outside the workspace. The base file itself accepts an absolute or workspace-relative path. Both files receive the same regular-file checks; an empty target, absolute target, URL, or NUL-containing target is rejected. File results report the absolute path in the filesystem's execution world.
 
 ### Pages
 
@@ -92,7 +94,7 @@ One supervised `changes` stream serves each Session and requested path; consumer
 
 ### Design concept
 
-Reads through `ctx.fs` use the backend's read authority; the sandboxing backend fences writes and edits, not reads. A Typert lookup derives `WorkspaceFileScope` from a live Session header or the persistence service's header-only `stat`, so cold subagent Sessions need neither Agent activation nor event-body reads. The service adds regular-file checks and bounded transfer, while workspace containment belongs only to directory listing and directory watching. A page is cut from `streamText`, which decodes and rejects non-UTF-8 chunk by chunk: the cutter counts lines before the window without keeping them, admits each in-window segment against the byte cap before buffering it, and returns at the first character past the window. One `stat` before the stream names the version and size the page reports.
+Reads through `ctx.fs` use the backend's read authority; directory listings and watches are confined to the session's captured primary and additional roots. A Typert lookup reads live policy or a cold Session projection without activating an Agent. File previews retain regular-file checks and bounded transfer. Text windows stop after the requested page; a preceding stat supplies the reported version and size.
 
 Complete-file reads delegate size enforcement to `fs.readBytes` and return raw bytes through the binary Remote.
 

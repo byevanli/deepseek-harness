@@ -11,7 +11,7 @@ import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { SESSION_FORMAT_VERSION, Session, SessionId } from '@deepseek-ai/dsh-session'
-import SandboxPolicyService, { SANDBOX_MODES, setSandboxMode } from '@deepseek-ai/dsh-sandbox-policy'
+import SandboxPolicyService, { SANDBOX_MODES, setSandboxMode, setSessionDirectories } from '@deepseek-ai/dsh-sandbox-policy'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import SystemPrompt, { renderContextSnapshot, renderPrompt } from '@deepseek-ai/dsh-system-prompt'
 
@@ -248,4 +248,41 @@ describe('the sandbox/mode session kit', () => {
     expect(modeEvents).toHaveLength(1)
     expect(modeEvents[0]?.data).toEqual({ mode: 'danger-full-access' })
   })
+})
+
+
+describe('captured session directories', () => {
+  it('copies initialization, survives replay and remains immutable', async () => {
+    const ctx = await mounted({ mode: 'workspace-write' })
+    const active = session('directories', '/primary')
+    const directories = ['/secondary']
+    setSessionDirectories(active, directories, ctx.sessionProjections)
+    directories.push('/later')
+    const restored = Session.create(active.id, active.snapshotEvents(), active.header)
+    expect(ctx.sandboxPolicy.resolve({ session: restored }).additionalDirectories).toEqual(['/secondary'])
+    expect(ctx.sessionProjections.snapshot(restored).values.sandboxDirectories).toEqual(['/secondary'])
+    expect(() => { setSessionDirectories(active, ['/replacement'], ctx.sessionProjections) }).toThrow('already initialized')
+  })
+
+  it('rejects relative roots before appending and preserves read-only mode', async () => {
+    const ctx = await mounted()
+    const active = session('read-only-directories', '/primary')
+    expect(() => { setSessionDirectories(active, ['relative'], ctx.sessionProjections) }).toThrow('absolute')
+    expect(active.seq).toBe(0)
+    setSessionDirectories(active, ['/secondary'], ctx.sessionProjections)
+    expect(ctx.sandboxPolicy.resolve({ session: active })).toMatchObject({ mode: 'read-only', additionalDirectories: ['/secondary'] })
+  })
+})
+
+
+it('describes captured roots to the model even under read-only', async () => {
+  const ctx = new Context()
+  try {
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(SessionProjectionRegistry)
+    await ctx.plugin(SandboxPolicyService)
+    const active = session('read-only-context', '/primary')
+    setSessionDirectories(active, ['/secondary'], ctx.sessionProjections)
+    expect(await policyContext(ctx, active)).toContain('Additional session directories: ["/secondary"]')
+  } finally { await ctx.fiber.dispose() }
 })

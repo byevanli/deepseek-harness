@@ -46,12 +46,9 @@ export interface DomainSpec {
    */
   readonly layout?: 'single' | 'per-record'
   /**
-   * Older domain versions whose stored records the current record schemas
-   * also accept (the declaring owner vouches for that, typically by
-   * declaring the fields older records lack as optional). `per-record` backends
-   * read documents stamped with a listed version instead of discarding them,
-   * and accept a legacy whole-unit file so stamped for the one-time
-   * bootstrap; writes always stamp {@link version}.
+   * 当前记录 schema 明确接受的旧版本；只有低于当前版本的列举值可读。
+   * 单文档和 SQLite 在成功写入数据时原子盖当前版本，读取不升级介质。
+   * per-record 保持逐文档兼容读取与当前版本写入。
    */
   readonly compatibleVersions?: readonly number[]
   /**

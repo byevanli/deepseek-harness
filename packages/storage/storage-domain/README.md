@@ -7,6 +7,8 @@ kind: "package-reference"
 
 English | [中文](README.zh.md)
 
+Explicit `compatibleVersions` accepts only listed versions below the current unit version whose records the owner can read. Single-document JSON and SQLite retain the stored stamp on read and atomically stamp the current version with a successful data write; a failed write retains the previous data and version. Undeclared or future versions reject. Per-record JSON retains document-level compatibility behavior.
+
 ## Summary
 
 Use this package to declare schema-validated key-value domains and open them through `ctx.storageDomain` over a configured storage backend. Reads return synchronously from validated in-memory state, while each write becomes durable before it resolves and emits `domain/changed` in order. Product packages use domain handles instead of accessing storage backends directly. This host-side state does not add tools, prompts, or session events, so it remains invisible to the model and agent loop.
@@ -145,7 +147,7 @@ These limits define when the domain layer is a poor fit or needs special operati
 
 - **Single-process change visibility** — `domain/changed` is an in-process event; a second host process or a reconnecting GUI observes no changes until the cross-process revision pattern lands ([Agent Note](../../../.agents/notes/proposed/architecture/2026-07-24-domain-kv-storage-and-workspace.md)).
 - **No cross-table transactions, secondary indexes, or multi-segment keys** — each write touches one record; these extensions are deferred in the Agent Note's out-of-scope list.
-- **No data migration** — a domain whose stored version differs from its spec rejects at open (`version-mismatch`); changing a schema requires migrating the stored data by hand.
+- **No data migration** — a domain whose stored version is neither current nor explicitly accepted by its spec rejects at open (`version-mismatch`); changing a schema requires migrating the stored data by hand.
 
 <a id="dev-note"></a>
 ### Dev Note

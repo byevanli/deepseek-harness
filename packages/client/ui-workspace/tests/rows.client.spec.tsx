@@ -443,7 +443,7 @@ describe('workspace browser rows', () => {
     // Opening the menu neither toggles the group nor renames yet.
     expect(onToggle).not.toHaveBeenCalled()
     expect(screen.getByRole('menuitem', { name: '删除工作区' }).className).toMatch(/danger/)
-    fireEvent.click(screen.getByRole('menuitem', { name: '重命名' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: '编辑工作区' }))
     expect(onRename).toHaveBeenCalledOnce()
     expect(screen.queryByRole('menu')).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: '工作区“Project”的操作' }))

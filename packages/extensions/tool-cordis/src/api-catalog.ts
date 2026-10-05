@@ -1870,6 +1870,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'the fully resolved per-call mode and absolute workspace root.',
       },
       {
+        signature: 'directoriesOf(session: Session): readonly string[]',
+        description: '读取会话目录快照，未初始化的旧会话使用空列表。',
+        parameters: [{ name: 'session', description: '目录所属会话。' }],
+        returns: '捕获的附加目录。',
+      },
+      {
         signature: 'overrideOf(session: Session): SandboxMode | undefined',
         description: 'Read the session override without applying the deployment default.',
         parameters: [{ name: 'session', description: 'session whose log supplies the override.' }],
@@ -3600,6 +3606,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'the Workspace and whether this call created it.',
       },
       {
+        signature: '@Remote(\'update\') update(request: WorkspaceUpdateRequest): Promise<WorkspaceValue>',
+        description: '一次保存完整 Workspace 配置。',
+        parameters: [{ name: 'request', description: '标识、名称与完整目录选择。' }],
+        returns: '更新后的完整投影。',
+      },
+      {
         signature: '@Remote(\'initializeDefault\') async initializeDefault(signal: AbortSignal): Promise<WorkspaceValue | undefined>',
         description: 'Initialize or reuse the default Workspace during first-use startup. The directory name is fixed, so the Host never renames or relocates an existing default; its initial title is that same name, which browser consumers label in the reader\'s language.',
         parameters: [{ name: 'signal', description: 'caller lifetime; cancels native directory lookup.' }],
@@ -3705,10 +3717,16 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     description: 'Durable workspace registry. Startup waits for `sessionPersistence`, builds one canonical-cwd header index, and completes the one-time history bootstrap before the service becomes active. The persistence dependency is mandatory so an unavailable peer can never be mistaken for an empty history and commit the initialized marker.',
     methods: [
       {
-        signature: 'async create(path: string, title?: string): Promise<Workspace>',
-        description: 'Create or reuse a workspace for an existing directory. The fully qualified path is canonicalized through `fs.realpath`; a relative, nonexistent, or non-directory path rejects. Repeated calls for the same canonical path return the existing entity without changing its title. A newly created workspace is prepended to the durable registry order. Different canonical paths may share a display title.',
-        parameters: [{ name: 'path', description: 'Existing directory to own, in a fully qualified path spelling.' }, { name: 'title', description: 'Display title used only when a new record is created.' }],
-        returns: 'the existing or newly durable workspace.',
+        signature: 'async create( input: string | { path: string; title?: string; additionalDirectories?: readonly string[] }, title?: string, ): Promise<Workspace>',
+        description: '注册已存在的主要目录与附加目录；新记录置于注册表显示顺序首位。 旧路径调用幂等复用，显式配置与已有主要目录配置不同时拒绝。',
+        parameters: [{ name: 'input', description: '主要目录或包含名称与附加目录的配置。' }, { name: 'title', description: '旧路径调用创建时使用的名称。' }],
+        returns: '新建或既有 Workspace。',
+      },
+      {
+        signature: 'update(id: WorkspaceId, configuration: { path: string; title: string; additionalDirectories: readonly string[] }): Promise<Workspace>',
+        description: '一次保存主要目录、名称与附加目录；既有缺失目录可以原样保留。',
+        parameters: [{ name: 'id', description: 'Workspace 标识。' }, { name: 'configuration', description: '完整配置，主要目录必须明确提供。' }],
+        returns: '更新后的 Workspace；不存在的标识拒绝。',
       },
       {
         signature: 'initializeDefault(resolveDirectory: () => Promise<string>): Promise<Workspace | undefined>',
@@ -3724,9 +3742,9 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'list(): Workspace[]',
-        description: 'Synchronous workspace projection in durable registry order. Every entity\'s `sessionIds` getter is already filtered by the startup/live canonical-cwd header index; this method performs no persistence reads.',
+        description: '按持久化注册表顺序返回 Workspace，保留 Session 账本，不读取持久层。',
         parameters: [],
-        returns: 'a fresh ordered array of workspace entities.',
+        returns: '独立的有序实体数组。',
       },
       {
         signature: 'delete(id: WorkspaceId): Promise<boolean>',
@@ -6410,7 +6428,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SandboxExecutionPolicy',
-    declaration: 'export interface SandboxExecutionPolicy {\n    mode: SandboxMode;\n    workspaceRoot: string;\n    sessionId?: SessionId;\n}',
+    declaration: 'export interface SandboxExecutionPolicy {\n    mode: SandboxMode;\n    workspaceRoot: string;\n    additionalDirectories?: readonly string[];\n    sessionId?: SessionId;\n}',
   },
   {
     name: 'SandboxMode',
@@ -8258,7 +8276,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'Workspace',
-    declaration: 'export interface Workspace {\n    readonly id: WorkspaceId;\n    readonly path: string;\n    readonly title: string;\n    readonly createdAt: string;\n    readonly updatedAt: string;\n    readonly sessionIds: readonly SessionId[];\n    setTitle(title: string): Promise<void>;\n    attachSession(sessionId: SessionId): Promise<void>;\n    insertSessionBefore(sessionId: SessionId, beforeSessionId?: SessionId): Promise<void>;\n    detachSession(sessionId: SessionId): Promise<void>;\n    status(): Promise<\'ok\' | \'missing-dir\'>;\n}',
+    declaration: 'export interface Workspace {\n    readonly id: WorkspaceId;\n    readonly path: string;\n    readonly additionalDirectories: readonly string[];\n    readonly title: string;\n    readonly createdAt: string;\n    readonly updatedAt: string;\n    readonly sessionIds: readonly SessionId[];\n    setTitle(title: string): Promise<void>;\n    attachSession(sessionId: SessionId): Promise<void>;\n    insertSessionBefore(sessionId: SessionId, beforeSessionId?: SessionId): Promise<void>;\n    detachSession(sessionId: SessionId): Promise<void>;\n    status(): Promise<\'ok\' | \'missing-dir\'>;\n}',
   },
   {
     name: 'WorkspaceArchiveSessionRequest',
@@ -8290,7 +8308,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'WorkspaceCreateRequest',
-    declaration: 'export interface WorkspaceCreateRequest {\n    readonly path: string;\n}',
+    declaration: 'export interface WorkspaceCreateRequest {\n    readonly path: string;\n    readonly title?: string;\n    readonly additionalDirectories?: readonly string[];\n}',
   },
   {
     name: 'WorkspaceCreateValue',
@@ -8314,7 +8332,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'WorkspaceDirectoryListing',
-    declaration: 'export interface WorkspaceDirectoryListing {\n    readonly path: string;\n    readonly entries: readonly WorkspaceDirectoryEntry[];\n    readonly truncated: boolean;\n}',
+    declaration: 'export interface WorkspaceDirectoryListing {\n    readonly root?: string;\n    readonly path: string;\n    readonly entries: readonly WorkspaceDirectoryEntry[];\n    readonly truncated: boolean;\n}',
   },
   {
     name: 'WorkspaceFileBytes',
@@ -8334,7 +8352,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'WorkspaceFileScope',
-    declaration: 'export interface WorkspaceFileScope {\n    readonly sessionId: SessionId;\n    readonly workspaceRoot: string;\n}',
+    declaration: 'export interface WorkspaceFileScope {\n    readonly sessionId: SessionId;\n    readonly workspaceRoot: string;\n    readonly additionalDirectories?: readonly string[];\n}',
   },
   {
     name: 'WorkspaceFileStat',
@@ -8389,12 +8407,16 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface WorkspaceUnpinSessionRequest {\n    readonly sessionId: SessionId;\n}',
   },
   {
+    name: 'WorkspaceUpdateRequest',
+    declaration: 'export interface WorkspaceUpdateRequest {\n    readonly workspaceId: WorkspaceId;\n    readonly path: string;\n    readonly title: string;\n    readonly additionalDirectories: readonly string[];\n}',
+  },
+  {
     name: 'WorkspaceValue',
     declaration: 'export interface WorkspaceValue {\n    readonly workspace: WorkspaceView;\n}',
   },
   {
     name: 'WorkspaceView',
-    declaration: 'export interface WorkspaceView {\n    readonly workspaceId: WorkspaceId;\n    readonly path: string;\n    readonly title: string;\n    readonly sessionIds: readonly SessionId[];\n    readonly createdAt: string;\n    readonly updatedAt: string;\n}',
+    declaration: 'export interface WorkspaceView {\n    readonly workspaceId: WorkspaceId;\n    readonly path: string;\n    readonly additionalDirectories: readonly string[];\n    readonly title: string;\n    readonly sessionIds: readonly SessionId[];\n    readonly createdAt: string;\n    readonly updatedAt: string;\n}',
   },
 ]
 

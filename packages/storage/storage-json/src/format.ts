@@ -63,7 +63,8 @@ export function parse(text: string, descriptor: KvUnitDescriptor): UnitState {
     throw new StorageError('malformed-medium', `unit '${descriptor.name}': missing or foreign unit header`)
   }
   const version = (unit as Record<string, unknown>)['version'] as number
-  if (version !== descriptor.version) {
+  if (version !== descriptor.version
+    && !(version < descriptor.version && descriptor.compatibleVersions?.includes(version))) {
     throw new StorageError(
       'version-mismatch',
       `unit '${descriptor.name}': stored version ${version} != expected ${descriptor.version}`,

@@ -35,12 +35,12 @@ kind: "package-reference"
 <a id="the-tree"></a>
 ## 树
 
-根是会话的工作目录，读自 `useSessions().byId[sessionId].cwd`。`/` 和 Windows 盘根等文件系统根路径均可作为树的根。每一层以绝对路径为键；子路径是父路径以 `/` 拼上条目名。一层在首次展开时经 `@deepseek-ai/dsh-api-workspace-files` 命名空间的 `remote.workspaceFiles.list(sessionId, absolutePath)` 列出；适配器保留列表的条目与截断标志，丢弃其工作区相对路径。行序为目录优先，其后按自然序、不分大小写的名称排列；dotfiles 与其他条目一样显示。
+文件面板将会话工作目录与固定保存的附加目录分别显示为根目录。工作目录来自 `useSessions().byId[sessionId].cwd`，`useProjection('sandboxDirectories')` 提供固定附加目录。每个根目录独立展开和刷新。各层使用绝对路径，通过 `remote.workspaceFiles.list(sessionId, absolutePath)` 列举。条目仍以目录优先、自然且不区分大小写的顺序排列，并显示点文件。
 
 | 条目类型 | 行 |
 |---|---|
 | `directory` | 切换展开与折叠；再次打开时重新列举，并恢复仍存在的已展开后代。折叠期间保留已显示条目的缓存。 |
-| `file` | 经 `useTabInfo().tab.actions.openResource` 打开 `dsh-resource://file/session/<sessionId>/<encoded path relative to the root>`，地址由 `@deepseek-ai/dsh-util-workspace-path` 的 `fileAddressFor` 从条目的绝对路径与树的根生成，落在该 tab 自己的 pane 里。 |
+| `file` | 通过 `fileAddressFor(sessionId, cwd, absolutePath)` 在该 tab 的 pane 中打开。主要目录内文件使用会话相对地址，其他固定根目录的文件保留绝对路径。 |
 | `other` | 灰显且不可点击，从而完整呈现目录内容。 |
 
 被端点条目上限截断的层以一条标记收尾；空层如实说明；失败的层按错误码各显示一行（`workspace-file/not-found`、`outside-workspace`、`not-directory`），其他情况显示传输层自己的消息。重新读取就地刷新根与展开中的层，读取期间保留显示条目，不重置整棵树；折叠的层在下次打开时重新拉取。没有工作目录的会话只显示一行说明，而不是树。

@@ -18,3 +18,53 @@
 .menuStatus {
   color: var(--dsw-alias-label-secondary);
 }
+
+.editorInput {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--dsw-alias-border-l4);
+  border-radius: var(--dsw-radius-lg);
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  font: inherit;
+}
+
+.editorLabel {
+  margin: 20px 0 8px;
+  font-weight: 500;
+}
+
+.directories {
+  margin: 0 0 12px;
+  padding: 0;
+  list-style: none;
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.directoryRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 0;
+  font-size: 13px;
+}
+
+.directoryPath {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.primary {
+  color: var(--dsw-alias-label-secondary);
+  padding: 4px 8px;
+}
+
+.editorHint {
+  color: var(--dsw-alias-label-secondary);
+  font-size: 13px;
+  line-height: 1.5;
+  margin: 12px 0 0;
+}

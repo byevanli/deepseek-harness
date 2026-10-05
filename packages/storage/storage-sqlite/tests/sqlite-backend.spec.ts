@@ -42,6 +42,36 @@ const DESCRIPTOR: KvUnitDescriptor = {
 }
 
 describe('sqlite backend specifics', () => {
+  it('reads a compatible version and atomically upgrades the stamp with the first write', async () => {
+    const path = await freshDbPath()
+    const old = backendAt(path)
+    await (await old.kv.open(DESCRIPTOR)).putRecord('records', 'kept', { id: 'old' })
+    await old.close()
+    const next = { ...DESCRIPTOR, version: 2, compatibleVersions: [1] }
+    const backend = backendAt(path)
+    const unit = await backend.kv.open(next)
+    expect((await unit.loadAll()).tables['records']).toEqual({ kept: { id: 'old' } })
+    const db = new DatabaseSync(path)
+    try {
+      expect(db.prepare('SELECT version FROM units').get()).toEqual({ version: 1 })
+      db.exec("CREATE TRIGGER fail_upgrade BEFORE UPDATE OF version ON units BEGIN SELECT RAISE(ABORT, 'upgrade failed'); END")
+      await expect(unit.putRecord('records', 'new', { id: 'new' })).rejects.toThrow('upgrade failed')
+      expect((await unit.loadAll()).tables['records']).toEqual({ kept: { id: 'old' } })
+      expect(db.prepare('SELECT version FROM units').get()).toEqual({ version: 1 })
+      db.exec('DROP TRIGGER fail_upgrade')
+      await unit.setGlobal({ saved: true })
+      expect(db.prepare('SELECT version FROM units').get()).toEqual({ version: 2 })
+    } finally {
+      db.close()
+      await backend.close()
+    }
+    const reopened = backendAt(path)
+    await expect(reopened.kv.open(DESCRIPTOR)).rejects.toMatchObject({ code: 'version-mismatch' })
+    const upgraded = await reopened.kv.open(next)
+    expect((await upgraded.loadAll()).global).toEqual({ saved: true })
+    await reopened.close()
+  })
+
   it('opens an in-memory database', async () => {
     const backend = backendAt(':memory:')
     const unit = await backend.kv.open(DESCRIPTOR)

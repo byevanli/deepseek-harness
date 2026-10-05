@@ -63,7 +63,7 @@ const sessionState = (
   }
 }
 const workspace = (id: string, sessionIds: string[], title = id): WorkspaceView => ({
-  workspaceId: wid(id), path: `/projects/${id}`, title,
+  workspaceId: wid(id), additionalDirectories: [], path: `/projects/${id}`, title,
   sessionIds: sessionIds.map(sid), createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z',
 })
 const workspaceState = (
@@ -130,6 +130,7 @@ function mount(overrides: Partial<WorkspaceBrowserProps> = {}) {
     searchResultLimit: 20,
     notifyArchivedNotOpenable: vi.fn(),
     renameWorkspace: vi.fn(async () => {}),
+    updateWorkspace: vi.fn<WorkspaceBrowserProps['updateWorkspace']>(async input => ({ ...workspace(String(input.workspaceId), []), ...input })),
     deleteWorkspace: vi.fn(async () => {}),
     unarchiveSession: vi.fn(async () => {}),
     insertWorkspaceBefore: vi.fn(async () => {}),
@@ -283,8 +284,8 @@ describe('WorkspaceBrowser', () => {
     const add = screen.getByRole('button', { name: '添加工作区' })
     add.focus()
     fireEvent.click(add)
-    expect(document.activeElement).toBe(add)
-    expect(screen.getByTestId('directory-flow')).toBeTruthy()
+    expect(screen.getByRole('dialog', { name: '创建工作区' })).toBeTruthy()
+    expect(document.activeElement).toBe(screen.getByLabelText('工作区名称'))
     expect(panelInfo.activePanelId).toBe('panel-a')
     expect(b.props.open).not.toHaveBeenCalled()
     expect(b.props.startSession).not.toHaveBeenCalled()
@@ -1846,6 +1847,8 @@ describe('WorkspaceBrowser', () => {
     // one-row popover, and existing workspaces stay in the tree below.
     expect(screen.queryByRole('menu')).toBeNull()
     expect(screen.queryByRole('menuitem', { name: 'alpha' })).toBeNull()
+    expect(screen.getByRole('dialog', { name: '创建工作区' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '添加文件夹' }))
     expect(screen.getByTestId('directory-flow')).toBeTruthy()
   })
 
@@ -2232,52 +2235,48 @@ describe('WorkspaceBrowser', () => {
   })
 
   it('labels an unrenamed default Workspace in the reader’s language and every other title verbatim', () => {
-    const renameWorkspace = vi.fn(async () => {})
+    const updateWorkspace = vi.fn<WorkspaceBrowserProps['updateWorkspace']>(async () => workspace('alpha', [], 'default-workspace'))
     mount({
       useWorkspaces: hook(workspaceState([
         workspace('alpha', [], 'default-workspace'),
         workspace('beta', [], 'default-workspace backup'),
       ])),
-      renameWorkspace,
+      updateWorkspace,
     })
     expect(screen.getByRole('button', { name: '工作区“默认工作区”的操作' })).toBeTruthy()
     expect(screen.getByRole('button', { name: '工作区“default-workspace backup”的操作' })).toBeTruthy()
-    // The dialog edits the text on screen, and the stored title — not that
-    // text — decides whether confirming saves. So confirming the untouched
-    // prefill pins the localized name and the row stops following the language.
     fireEvent.click(screen.getByRole('button', { name: '工作区“默认工作区”的操作' }))
-    fireEvent.click(screen.getByRole('menuitem', { name: '重命名' }))
-    expect(screen.getByLabelText<HTMLInputElement>('工作区名称').value).toBe('默认工作区')
+    fireEvent.click(screen.getByRole('menuitem', { name: '编辑工作区' }))
+    expect(screen.getByLabelText<HTMLInputElement>('工作区名称').value).toBe('default-workspace')
     expect(screen.queryByRole('alert')).toBeNull()
-    const confirm = screen.getByRole<HTMLButtonElement>('button', { name: '重命名' })
+    const confirm = screen.getByRole<HTMLButtonElement>('button', { name: '保存' })
     expect(confirm.disabled).toBe(false)
     fireEvent.click(confirm)
-    expect(renameWorkspace).toHaveBeenCalledWith(wid('alpha'), '默认工作区')
+    expect(updateWorkspace).toHaveBeenCalledWith({ workspaceId: wid('alpha'), path: '/projects/alpha', title: 'default-workspace', additionalDirectories: [] })
   })
 
   it('renames a workspace through the row menu dialog', async () => {
     let resolveRename!: () => void
-    const renameWorkspace = vi.fn(() => new Promise<void>((resolve) => { resolveRename = resolve }))
+    const updateWorkspace = vi.fn<WorkspaceBrowserProps['updateWorkspace']>(() => new Promise((resolve) => {
+      resolveRename = () => { resolve(workspace('alpha', [], 'Gamma')) }
+    }))
     mount({
       useWorkspaces: hook(workspaceState([workspace('alpha', [], 'Alpha'), workspace('beta', [], 'Beta')])),
-      renameWorkspace,
+      updateWorkspace,
     })
     fireEvent.click(screen.getByRole('button', { name: '工作区“Alpha”的操作' }))
-    fireEvent.click(screen.getByRole('menuitem', { name: '重命名' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: '编辑工作区' }))
     const input = screen.getByLabelText<HTMLInputElement>('工作区名称')
     expect(input.value).toBe('Alpha')
-    // Unchanged and blank names stay blocked.
-    expect(screen.getByRole<HTMLButtonElement>('button', { name: '重命名' }).disabled).toBe(true)
+    expect(screen.getByRole<HTMLButtonElement>('button', { name: '保存' }).disabled).toBe(false)
     fireEvent.change(input, { target: { value: '   ' } })
-    expect(screen.getByRole<HTMLButtonElement>('button', { name: '重命名' }).disabled).toBe(true)
-    // A duplicate of another workspace's title shows the inline conflict.
+    expect(screen.getByRole<HTMLButtonElement>('button', { name: '保存' }).disabled).toBe(true)
     fireEvent.change(input, { target: { value: ' Beta ' } })
     expect(screen.getByRole('alert').textContent).toBe('已存在名为“Beta”的工作区。')
-    expect(screen.getByRole<HTMLButtonElement>('button', { name: '重命名' }).disabled).toBe(true)
+    expect(screen.getByRole<HTMLButtonElement>('button', { name: '保存' }).disabled).toBe(true)
     fireEvent.change(input, { target: { value: 'Gamma' } })
-    fireEvent.click(screen.getByRole('button', { name: '重命名' }))
-    expect(renameWorkspace).toHaveBeenCalledWith(wid('alpha'), 'Gamma')
-    // While renaming: input disabled, close blocked, Enter ignored.
+    fireEvent.click(screen.getByRole('button', { name: '保存' }))
+    expect(updateWorkspace).toHaveBeenCalledWith({ workspaceId: wid('alpha'), path: '/projects/alpha', title: 'Gamma', additionalDirectories: [] })
     expect(input.disabled).toBe(true)
     fireEvent.keyDown(document, { key: 'Escape' })
     expect(screen.getByRole('dialog')).toBeTruthy()
@@ -2286,23 +2285,22 @@ describe('WorkspaceBrowser', () => {
   })
 
   it('rename via Enter, failure surfaces the error, Cancel closes', async () => {
-    const renameWorkspace = vi.fn(async () => { throw new Error('rename conflict') })
+    const updateWorkspace = vi.fn(async () => { throw new Error('rename conflict') })
     mount({
       useWorkspaces: hook(workspaceState([workspace('alpha', [], 'Alpha')])),
-      renameWorkspace,
+      updateWorkspace,
     })
     fireEvent.click(screen.getByRole('button', { name: '工作区“Alpha”的操作' }))
-    fireEvent.click(screen.getByRole('menuitem', { name: '重命名' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: '编辑工作区' }))
     const input = screen.getByLabelText<HTMLInputElement>('工作区名称')
-    // Enter with a blocked draft (unchanged) does nothing.
+    fireEvent.change(input, { target: { value: ' ' } })
     fireEvent.keyDown(input, { key: 'Enter' })
-    expect(renameWorkspace).not.toHaveBeenCalled()
+    expect(updateWorkspace).not.toHaveBeenCalled()
     fireEvent.change(input, { target: { value: 'Renamed' } })
     fireEvent.keyDown(input, { key: 'a' })
     fireEvent.keyDown(input, { key: 'Enter' })
-    expect(renameWorkspace).toHaveBeenCalledWith(wid('alpha'), 'Renamed')
+    expect(updateWorkspace).toHaveBeenCalledWith({ workspaceId: wid('alpha'), path: '/projects/alpha', title: 'Renamed', additionalDirectories: [] })
     await waitFor(() => { expect(screen.getByRole('alert').textContent).toBe('rename conflict') })
-    // The dialog stays for retry; typing clears the error; Cancel closes.
     fireEvent.change(input, { target: { value: 'Renamed2' } })
     expect(screen.queryByRole('alert')).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: '取消' }))
@@ -2310,15 +2308,15 @@ describe('WorkspaceBrowser', () => {
   })
 
   it('reports non-Error rename failures as text', async () => {
-    const renameWorkspace = vi.fn(async () => { throw 'denied' })
+    const updateWorkspace = vi.fn(async () => { throw 'denied' })
     mount({
       useWorkspaces: hook(workspaceState([workspace('alpha', [], 'Alpha')])),
-      renameWorkspace,
+      updateWorkspace,
     })
     fireEvent.click(screen.getByRole('button', { name: '工作区“Alpha”的操作' }))
-    fireEvent.click(screen.getByRole('menuitem', { name: '重命名' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: '编辑工作区' }))
     fireEvent.change(screen.getByLabelText('工作区名称'), { target: { value: 'Other' } })
-    fireEvent.click(screen.getByRole('button', { name: '重命名' }))
+    fireEvent.click(screen.getByRole('button', { name: '保存' }))
     await waitFor(() => { expect(screen.getByRole('alert').textContent).toBe('denied') })
   })
 
@@ -2417,7 +2415,7 @@ describe('Workspace tree grouping', () => {
   const child = { ...workspace('child', ['child-session'], 'Child'), path: '/projects/team/child' }
   const section = (title: string) => screen.getByText(title).closest<HTMLElement>('[class*="groupSection"]')!
 
-  it('adopts a parent directory and opens its Session without confirmation', async () => {
+  it('adopts a parent directory and opens its Session after explicitly saving its directory draft', async () => {
     const b = mount({
       useWorkspaces: hook(workspaceState([child])),
       createWorkspace: vi.fn(async () => root),
@@ -2425,9 +2423,12 @@ describe('Workspace tree grouping', () => {
         ? <button onClick={() => { owner.onPicked('/projects') }}>Pick directory</button> : null) as WorkspaceBrowserProps['renderSlot'],
     })
     fireEvent.click(screen.getByRole('button', { name: '添加工作区' }))
+    fireEvent.click(screen.getByRole('button', { name: '添加文件夹' }))
     fireEvent.click(screen.getByRole('button', { name: 'Pick directory' }))
+    expect(b.props.createWorkspace).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: '创建工作区' }))
     await waitFor(() => { expect(b.props.startSession).toHaveBeenCalledWith(wid('root')) })
-    expect(b.props.createWorkspace).toHaveBeenCalledWith({ path: '/projects' })
+    expect(b.props.createWorkspace).toHaveBeenCalledWith({ path: '/projects', title: 'projects', additionalDirectories: [] })
     expect(screen.queryByRole('dialog')).toBeNull()
     rerender(b, { useWorkspaces: hook(workspaceState([child, root])) })
     expect(within(section('Projects')).getByText('Child')).toBeTruthy()

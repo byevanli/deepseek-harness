@@ -241,3 +241,20 @@ describe('FsError identity', () => {
     expect((error as FsError).code).toBe('FS_SANDBOX_DENIED')
   })
 })
+
+
+it('writes into a captured additional root while denying unrelated and read-only writes', async () => {
+  await boot('workspace-write')
+  const additional = join(base, 'additional')
+  await mkdir(additional)
+  const policy = { mode: 'workspace-write' as const, workspaceRoot: workspace, additionalDirectories: [additional] }
+  const allowed = join(additional, 'allowed.txt')
+  await fs.writeText(await target(allowed), 'captured', undefined, undefined, policy)
+  expect(await readFile(allowed, 'utf8')).toBe('captured')
+  const denied = join(outside, 'denied.txt')
+  await expect(fs.writeText(await target(denied), 'x', undefined, undefined, policy)).rejects.toMatchObject({ code: 'FS_SANDBOX_DENIED' })
+  expect(existsSync(denied)).toBe(false)
+  const readonly = join(additional, 'readonly.txt')
+  await expect(fs.writeText(await target(readonly), 'x', undefined, undefined, { ...policy, mode: 'read-only' })).rejects.toMatchObject({ code: 'FS_SANDBOX_DENIED' })
+  expect(existsSync(readonly)).toBe(false)
+})

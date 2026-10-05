@@ -25,8 +25,10 @@ import z from '@deepseek-ai/schemastery'
 import type {} from '@deepseek-ai/dsh-fs'
 import type { FsDirEntry, FsInfo, FsPathInfo, FsTarget } from '@deepseek-ai/dsh-fs'
 import type {} from '@deepseek-ai/dsh-sandbox-policy'
+import type {} from '@deepseek-ai/dsh-sandbox-policy/types'
 import type {} from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-session-persistence'
+import type {} from '@deepseek-ai/dsh-session-query'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { Remote, RemoteError, TypertRemoteService, type TypertLookup } from '@deepseek-ai/dsh-typert-protocol'
 import { WorkspaceChangeFeed } from './changes.ts'
@@ -51,17 +53,19 @@ declare module '@deepseek-ai/cordis' {
   }
 }
 
-/** Header-derived file resolution context for one Session identity. */
+/** 按会话固定目录配置解析的文件访问上下文。 */
 export interface WorkspaceFileScope {
   /** Session identity received on the wire. */
   readonly sessionId: SessionId
   /** Session workspace root, or the deployment fallback when its header has no cwd. */
   readonly workspaceRoot: string
+  /** 会话创建时固定的附加目录；未设置时只有主要目录。 */
+  readonly additionalDirectories?: readonly string[]
 }
 
 declare module '@deepseek-ai/dsh-typert-protocol' {
   interface TypertLookupMap {
-    /** Resolve a Session id to its workspace root without loading its event body or activating an Agent. */
+    /** 从活动策略或冷会话投影恢复固定目录，不激活 Agent。 */
     workspaceFileScope: TypertLookup<WorkspaceFileScope, SessionId>
   }
 }
@@ -206,15 +210,22 @@ export class WorkspaceFiles extends TypertRemoteService {
         hostTypeSymbol: '@deepseek-ai/dsh-api-workspace-files#WorkspaceFileScope',
         wireTypeSymbol: '@deepseek-ai/dsh-session/types#SessionId',
         resolve: async (sessionId) => {
-          const live = scope.sessions.get(sessionId)?.header
-          const stored = live === undefined
-            ? await scope.get('sessionPersistence')?.stat(sessionId)
-            : undefined
-          const header = live ?? stored?.header
-          if (header === undefined) return undefined
+          const live = scope.sessions.get(sessionId)
+          if (live !== undefined) {
+            const policy = scope.sandboxPolicy.resolve({ session: live })
+            return { sessionId, workspaceRoot: policy.workspaceRoot, additionalDirectories: policy.additionalDirectories ?? [] }
+          }
+          const stored = await scope.get('sessionPersistence')?.stat(sessionId)
+          if (stored === undefined) return undefined
+          const query = scope.get('sessionQuery')
+          if (query === undefined) throw new Error('workspaceFiles requires sessionQuery for stored Session directories')
+          using observation = await query.observeSession(sessionId)
+          const additionalDirectories = observation.projections?.values.sandboxDirectories
+          if (additionalDirectories === undefined) throw new Error('workspaceFiles requires sandboxDirectories projection')
           return {
             sessionId,
-            workspaceRoot: header.cwd ?? scope.sandboxPolicy.workspaceRoot,
+            workspaceRoot: observation.header.cwd ?? scope.sandboxPolicy.workspaceRoot,
+            additionalDirectories,
           }
         },
       })
@@ -301,7 +312,7 @@ export class WorkspaceFiles extends TypertRemoteService {
    */
   @Remote
   async list(workspaceFileScope: WorkspaceFileScope, path: string, signal: AbortSignal): Promise<WorkspaceDirectoryListing> {
-    const { root, workspaceRoot, entry } = await this.inspect(workspaceFileScope, path, signal)
+    const { workspaceRoot, entry } = await this.inspect(workspaceFileScope, path, signal)
     // A final link — a Windows junction or a symlink — is listed through the
     // directory it resolves to, matching the child type `listDir` reports for
     // that entry; `read` keeps its own no-follow gate on the final component.
@@ -312,7 +323,7 @@ export class WorkspaceFiles extends TypertRemoteService {
         { path, kind: entry.type },
       )
     }
-    const target = await this.confine(root, workspaceRoot, path, signal)
+    const { root, target } = await this.confine(workspaceFileScope, path, signal)
     if (entry.type === 'symlink') {
       const info = await this.ctx.fs.stat(target, signal)
       if (info?.type !== 'directory') {
@@ -322,6 +333,7 @@ export class WorkspaceFiles extends TypertRemoteService {
     const children = await this.ctx.fs.listDir(target, signal)
     return {
       path: workspacePathOf(this.ctx.fs.fileUrl(root), this.ctx.fs.fileUrl(target)),
+      ...this.ctx.fs.processPath(root) === workspaceRoot ? {} : { root: this.ctx.fs.processPath(root) },
       entries: children.slice(0, this.config.maxEntries).map(directoryEntry),
       truncated: children.length > this.config.maxEntries,
     }
@@ -338,7 +350,7 @@ export class WorkspaceFiles extends TypertRemoteService {
    */
   @Remote({ mode: 'stream' })
   changes(workspaceFileScope: WorkspaceFileScope, path: string, signal: AbortSignal): AsyncIterable<WorkspaceFileWatchFrame> {
-    return this.feed.follow(workspaceFileScope.workspaceRoot, path, signal)
+    return this.feed.follow(workspaceFileScope.workspaceRoot, path, signal, workspaceFileScope.additionalDirectories)
   }
 
   private async relativePath(scope: WorkspaceFileScope, baseFile: string, path: string, signal: AbortSignal): Promise<string> {
@@ -398,13 +410,14 @@ export class WorkspaceFiles extends TypertRemoteService {
     return { root, workspaceRoot, entry }
   }
 
-  /** Resolve an inspected path and refuse it unless the workspace contains it. */
-  private async confine(root: FsTarget, workspaceRoot: string, path: string, signal: AbortSignal): Promise<FsTarget> {
-    const target = await this.ctx.fs.resolve(path, { cwd: workspaceRoot, signal })
-    if (!this.ctx.fs.contains(root, target)) {
-      throw new RemoteError('workspace-file/outside-workspace', `"${path}" is outside the workspace`, { path })
+  /** 将目录请求限制在会话固定的主要或附加目录内。 */
+  private async confine(scope: WorkspaceFileScope, path: string, signal: AbortSignal): Promise<{ root: FsTarget; target: FsTarget }> {
+    const target = await this.ctx.fs.resolve(path, { cwd: scope.workspaceRoot, signal })
+    for (const directory of [scope.workspaceRoot, ...scope.additionalDirectories ?? []]) {
+      const root = await this.ctx.fs.resolve(directory, { signal })
+      if (this.ctx.fs.contains(root, target)) return { root, target }
     }
-    return target
+    throw new RemoteError('workspace-file/outside-workspace', `"${path}" is outside the workspace`, { path })
   }
 
   /**

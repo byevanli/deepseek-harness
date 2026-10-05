@@ -103,6 +103,23 @@ describe('windows-acl write grants (LocalSandboxProvider)', () => {
     for (const dir of scratch.splice(0)) rmSync(dir, { recursive: true, force: true })
   }
 
+  it('grants each additional directory independently and omits all write capabilities in read-only', async () => {
+    const { sandbox, fiber } = await setup()
+    try {
+      const primary = workspaceRoot()
+      const additional = workspaceRoot()
+      scratch.push(primary, additional)
+      const policy: SandboxPolicy = { mode: 'workspace-write', workspaceRoot: primary, additionalDirectories: [additional], sessionId: SessionId('multi-root') }
+      const confined = await sandbox.confine(['true'], policy)
+      const standing = mockState.grants.filter(grant => grant.added.some(item => item.standing))
+      expect(standing.map(grant => grant.added[0]?.path)).toEqual([primary, additional])
+      expect(flag(confined.argv, '--additional-workspace')).toBe(additional)
+      const readonly = await sandbox.confine(['true'], { ...policy, mode: 'read-only' })
+      expect(readonly.argv).not.toContain('--additional-write-sid')
+      expect(readonly.argv).not.toContain('--write-sid')
+    } finally { await fiber.dispose(); cleanup() }
+  })
+
   it('does not create grants for a cancelled confinement request', async () => {
     const { sandbox, fiber } = await setup()
     try {

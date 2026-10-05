@@ -11,6 +11,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type { Agent, AgentOptions, CreateAgentOptions } from '@deepseek-ai/dsh-agent'
 import type { SandboxMode } from '@deepseek-ai/dsh-sandbox'
+import type { SessionProjectionRegistry } from '@deepseek-ai/dsh-session-projection'
 import type { Session, SessionId } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 import type { ToolRestriction } from '@deepseek-ai/dsh-tools'
@@ -227,6 +228,8 @@ export interface DelegatedPolicyOverrides {
   readonly permissionPreset: 'auto' | 'danger-full-access' | undefined
   /** The parent session's explicit sandbox-mode override, or `undefined` without one. */
   readonly sandboxMode: SandboxMode | undefined
+  /** 委派开始时捕获的附加目录。 */
+  readonly additionalDirectories?: readonly string[]
   /**
    * `'never'` whenever the approval capability is composed, `undefined`
    * otherwise: a delegated child acts only within the sandbox scope fixed at
@@ -248,9 +251,11 @@ export interface DelegatedPolicyOverrides {
  */
 export function captureDelegatedPolicyOverrides(parent: Agent): DelegatedPolicyOverrides {
   const preset = parent.ctx.get('permissionPresets')?.current(parent.session)
+  const sandboxPolicy = parent.ctx.get('sandboxPolicy')
   return {
     permissionPreset: preset === 'auto' || preset === 'danger-full-access' ? preset : undefined,
-    sandboxMode: parent.ctx.get('sandboxPolicy')?.overrideOf(parent.session),
+    sandboxMode: sandboxPolicy?.overrideOf(parent.session),
+    ...sandboxPolicy === undefined ? {} : { additionalDirectories: [...sandboxPolicy.directoriesOf(parent.session)] },
     approvalPolicy: parent.ctx.get('approval') === undefined ? undefined : 'never',
   }
 }
@@ -263,11 +268,19 @@ export function captureDelegatedPolicyOverrides(parent: Agent): DelegatedPolicyO
  * switches still win over these events.
  * @param childSession - the unpublished child's session.
  * @param overrides - the policy captured at delegation.
+ * @param projections - 子会话的目录投影注册表；捕获附加目录时必需。
  */
 export function appendDelegatedPolicyOverrides(
   childSession: Session,
   overrides: DelegatedPolicyOverrides,
+  projections?: SessionProjectionRegistry,
 ): void {
+  if (overrides.additionalDirectories !== undefined && overrides.additionalDirectories.length > 0) {
+    if (projections === undefined) throw new Error('delegated directories require session projections')
+    if (projections.stateOf(childSession, 'sandboxDirectories') === null) {
+      childSession.append('sandbox/directories', { additionalDirectories: [...overrides.additionalDirectories] })
+    }
+  }
   if (overrides.sandboxMode !== undefined) {
     childSession.append('sandbox/mode', { mode: overrides.sandboxMode, source: 'delegation' })
   }

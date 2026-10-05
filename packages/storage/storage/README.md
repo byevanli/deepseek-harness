@@ -7,6 +7,8 @@ kind: "package-reference"
 
 English | [中文](README.zh.md)
 
+Explicit `compatibleVersions` accepts only listed versions below the current unit version whose records the owner can read. Single-document JSON and SQLite retain the stored stamp on read and atomically stamp the current version with a successful data write; a failed write retains the previous data and version. Undeclared or future versions reject. Per-record JSON retains document-level compatibility behavior.
+
 ## Summary
 
 Use `dsh-storage` to keep typed application data durable without adding it to session history. Mount it with a supported storage medium and domain configuration, then callers can access records through the public `ctx.storageDomain` API. Choose it for workspace records, session sidecars, or other application state that must survive restarts without becoming session events. It is available only to host code and has no model-visible effect; compositions that do not need such data can omit it.
@@ -76,7 +78,7 @@ The hub is a pure registration table with two faces, designed so backends and da
 
 ### The backend contract
 
-[`src/backend.ts`](src/backend.ts) is the normative contract for backend implementers, checked clause by clause by the shared conformance suite in `tests/contract.ts`. A backend owns exactly one medium and exposes optional data-shape facets; `kv` is the only facet, and opening a unit yields a versioned, globally-singleton schema handle whose single calls are atomic and durable once resolved. Unit and table names must match `UNIT_NAME_RE`; record keys are arbitrary strings that never reach file paths. The unit does not serialize concurrent writes — ordering belongs to the caller — and a stored version differing from the descriptor rejects `version-mismatch` (no migration).
+[`src/backend.ts`](src/backend.ts) is the normative contract for backend implementers, checked clause by clause by the shared conformance suite in `tests/contract.ts`. A backend owns exactly one medium and exposes optional data-shape facets; `kv` is the only facet, and opening a unit yields a versioned, globally-singleton schema handle whose single calls are atomic and durable once resolved. Unit and table names must match `UNIT_NAME_RE`; record keys are arbitrary strings that never reach file paths. The unit does not serialize concurrent writes — ordering belongs to the caller — and a stored version outside the current and explicitly accepted older versions rejects `version-mismatch` (no migration).
 
 ### Source map
 

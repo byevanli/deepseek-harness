@@ -678,7 +678,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     doc: 'Directory-flow hole under the conversation empty-state picker (declared by the WorkspacePicker entry).',
     registerOptions: [],
     ownerProps: [
-      '/**\n * Owner share of the directory-flow holes: the complete conversation between\n * the trigger surface and the picking interaction. The occupant reads `open`\n * to run/render its interaction and reports exactly one outcome per open.\n */\nexport interface DirectoryFlowOwnerProps {\n  /** True while a picking interaction is requested; flipping back to false withdraws the request. */\n  open: boolean\n  /** True while the owner adopts a picked path (`createWorkspace` in flight); occupants disable their commit affordances. */\n  busy: boolean\n  /** The operator picked a directory (absolute host path); the owner adopts it. */\n  onPicked: (path: string) => void\n  /** The operator dismissed the interaction; the owner just closes the flow. */\n  onCancel: () => void\n  /** The interaction itself failed (chooser missing, listing denied); the owner shows its error surface. */\n  onError: (message: string) => void\n}',
+      '/**\n * Owner share of the directory-flow holes: the complete conversation between\n * the trigger surface and the picking interaction. The occupant reads `open`\n * to run/render its interaction and reports exactly one outcome per open.\n */\nexport interface DirectoryFlowOwnerProps {\n  /** True while a picking interaction is requested; flipping back to false withdraws the request. */\n  open: boolean\n  /** 属主处理目录选择结果时禁用选择器提交操作。 */\n  busy: boolean\n  /** 用户选择的宿主绝对路径，由属主加入草稿。 */\n  onPicked: (path: string) => void\n  /** The operator dismissed the interaction; the owner just closes the flow. */\n  onCancel: () => void\n  /** The interaction itself failed (chooser missing, listing denied); the owner shows its error surface. */\n  onError: (message: string) => void\n}',
     ],
     ownerPropsReferences: [],
     standardProps: [
@@ -700,7 +700,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     ],
     replaceRisk: 'shadows-shipped-ui',
     example: 'return {\n  inject: [\'slots\'],\n  apply(ctx) {\n    ctx.slots.inject(\'conversation.hero.workspace.directoryFlow\', () => ctx.slots.register(\n      { name: \'conversation.hero.workspace.directoryFlow\' },\n      () => React.createElement(\'div\', null, \'hello\'),\n    ))\n  },\n}',
-    source: 'packages/client/ui-workspace/src/client/contract/slots.ts:117',
+    source: 'packages/client/ui-workspace/src/client/contract/slots.ts:82',
   },
   {
     key: 'conversation.input.activity',
@@ -3787,7 +3787,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     ],
     replaceRisk: 'none',
     example: 'return {\n  inject: [\'slots\'],\n  apply(ctx) {\n    ctx.slots.inject(\'sidebar.session.row.hover\', () => ctx.slots.register(\n      { name: \'sidebar.session.row.hover\', id: \'my-entry\', order: 100, label: \'My entry\' },\n      () => React.createElement(\'div\', null, \'hello\'),\n    ))\n  },\n}',
-    source: 'packages/client/ui-workspace/src/client/contract/slots.ts:134',
+    source: 'packages/client/ui-workspace/src/client/contract/slots.ts:99',
   },
   {
     key: 'sidebar.session.row.leading',
@@ -3839,7 +3839,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     ],
     replaceRisk: 'none',
     example: 'return {\n  inject: [\'slots\'],\n  apply(ctx) {\n    ctx.slots.inject(\'sidebar.session.row.leading\', () => ctx.slots.register(\n      { name: \'sidebar.session.row.leading\', id: \'my-entry\', order: 100, label: \'My entry\' },\n      () => React.createElement(\'div\', null, \'hello\'),\n    ))\n  },\n}',
-    source: 'packages/client/ui-workspace/src/client/contract/slots.ts:129',
+    source: 'packages/client/ui-workspace/src/client/contract/slots.ts:94',
   },
   {
     key: 'sidebar.settings',
@@ -3940,7 +3940,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     doc: 'Directory-flow hole under the sidebar browsing region (declared by the WorkspaceBrowser entry).',
     registerOptions: [],
     ownerProps: [
-      '/**\n * Owner share of the directory-flow holes: the complete conversation between\n * the trigger surface and the picking interaction. The occupant reads `open`\n * to run/render its interaction and reports exactly one outcome per open.\n */\nexport interface DirectoryFlowOwnerProps {\n  /** True while a picking interaction is requested; flipping back to false withdraws the request. */\n  open: boolean\n  /** True while the owner adopts a picked path (`createWorkspace` in flight); occupants disable their commit affordances. */\n  busy: boolean\n  /** The operator picked a directory (absolute host path); the owner adopts it. */\n  onPicked: (path: string) => void\n  /** The operator dismissed the interaction; the owner just closes the flow. */\n  onCancel: () => void\n  /** The interaction itself failed (chooser missing, listing denied); the owner shows its error surface. */\n  onError: (message: string) => void\n}',
+      '/**\n * Owner share of the directory-flow holes: the complete conversation between\n * the trigger surface and the picking interaction. The occupant reads `open`\n * to run/render its interaction and reports exactly one outcome per open.\n */\nexport interface DirectoryFlowOwnerProps {\n  /** True while a picking interaction is requested; flipping back to false withdraws the request. */\n  open: boolean\n  /** 属主处理目录选择结果时禁用选择器提交操作。 */\n  busy: boolean\n  /** 用户选择的宿主绝对路径，由属主加入草稿。 */\n  onPicked: (path: string) => void\n  /** The operator dismissed the interaction; the owner just closes the flow. */\n  onCancel: () => void\n  /** The interaction itself failed (chooser missing, listing denied); the owner shows its error surface. */\n  onError: (message: string) => void\n}',
     ],
     ownerPropsReferences: [],
     standardProps: [
@@ -3962,7 +3962,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     ],
     replaceRisk: 'shadows-shipped-ui',
     example: 'return {\n  inject: [\'slots\'],\n  apply(ctx) {\n    ctx.slots.inject(\'sidebar.workspaces.directoryFlow\', () => ctx.slots.register(\n      { name: \'sidebar.workspaces.directoryFlow\' },\n      () => React.createElement(\'div\', null, \'hello\'),\n    ))\n  },\n}',
-    source: 'packages/client/ui-workspace/src/client/contract/slots.ts:119',
+    source: 'packages/client/ui-workspace/src/client/contract/slots.ts:84',
   },
   {
     key: 'sidebar.workspaces.session.menu.item',
@@ -4017,7 +4017,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     ],
     replaceRisk: 'none',
     example: 'return {\n  inject: [\'slots\'],\n  apply(ctx) {\n    const copyLabel = \'Copy Session ID\' // Localize in the contributing package.\n    ctx.slots.inject(\'sidebar.workspaces.session.menu.item\', () => ctx.slots.register(\n      { name: \'sidebar.workspaces.session.menu.item\', id: \'copy-session-id\', order: 500 },\n      ({ sessionId, useMenuOpenState }) => {\n        const [, setMenuOpen] = useMenuOpenState()\n        return React.createElement(\n          \'button\',\n          { type: \'button\', role: \'menuitem\', onClick: () => { setMenuOpen(false); void navigator.clipboard.writeText(sessionId) } },\n          copyLabel,\n        )\n      },\n    ))\n  },\n}',
-    source: 'packages/client/ui-workspace/src/client/contract/slots.ts:166',
+    source: 'packages/client/ui-workspace/src/client/contract/slots.ts:131',
   },
   {
     key: 'sidebar.workspaces.session.row.action',
@@ -4070,7 +4070,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     ],
     replaceRisk: 'none',
     example: 'return {\n  inject: [\'slots\'],\n  apply(ctx) {\n    ctx.slots.inject(\'sidebar.workspaces.session.row.action\', () => ctx.slots.register(\n      { name: \'sidebar.workspaces.session.row.action\', id: \'my-entry\', order: 100, label: \'My entry\' },\n      () => React.createElement(\'div\', null, \'hello\'),\n    ))\n  },\n}',
-    source: 'packages/client/ui-workspace/src/client/contract/slots.ts:184',
+    source: 'packages/client/ui-workspace/src/client/contract/slots.ts:149',
   },
   {
     key: 'tool.call.images',

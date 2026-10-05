@@ -11,6 +11,8 @@ English | [中文](README.zh.md)
 
 `dsh-ssh` connects a POSIX Harness host to an installed helper on a POSIX SSH host. One deployment-owned OpenSSH alias supplies authentication and host identity; the paired filesystem, subprocess and sandbox providers use that connection. The connection verifies installed artifact digests before readiness; the helper owns remote cleanup when the connection closes or its lease expires.
 
+SSH policy requests retain `additionalDirectories` in their strict schema. The helper resolves each directory in the remote filesystem before forwarding the policy to the filesystem and process sandbox providers.
+
 ## Table of Contents
 
 - [Use this package](#use-this-package)

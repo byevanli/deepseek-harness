@@ -44,6 +44,8 @@ export interface FilesTabState {
   autoRefresh: boolean
   /** Absolute path of the workspace root this tree is rooted at. */
   root: string
+  /** 会话附加根目录；每个目录独立展开。 */
+  additionalRoots: readonly string[]
   /** Level state by absolute directory path; a path absent here was never asked for. */
   levels: Record<string, LevelState>
   /** Expanded absolute directory paths, root included. */
@@ -73,7 +75,7 @@ function bucket(state: FilesState, tabId: TabId): FilesTabState {
 /** The tree store's write set; every action names the tab it writes. */
 type FilesActions = {
   autoRefresh: (draft: FilesState, tabId: TabId, enabled: boolean) => void
-  start: (draft: FilesState, tabId: TabId, root: string) => void
+  start: (draft: FilesState, tabId: TabId, root: string, additionalRoots?: readonly string[]) => void
   loading: (draft: FilesState, tabId: TabId, path: string) => void
   loaded: (draft: FilesState, tabId: TabId, path: string, level: DirLevel) => void
   failed: (draft: FilesState, tabId: TabId, path: string, failure: RemoteFailure) => void
@@ -101,8 +103,8 @@ export function createFilesStore(): EngineStoreHandle<FilesState, FilesActions> 
        * @param tabId - the tab being drawn.
        * @param root - absolute path of the workspace root.
        */
-      start: (d, tabId: TabId, root: string) => {
-        d.byTab[tabId] = { root, levels: {}, expanded: [root], scrollTop: 0, autoRefresh: true }
+      start: (d, tabId: TabId, root: string, additionalRoots: readonly string[] = []) => {
+        d.byTab[tabId] = { root, additionalRoots, levels: {}, expanded: [root, ...additionalRoots], scrollTop: 0, autoRefresh: true }
       },
       /**
        * Mark one directory as being listed.

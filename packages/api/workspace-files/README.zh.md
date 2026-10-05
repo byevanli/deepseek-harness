@@ -25,7 +25,7 @@ kind: "package-reference"
 <a id="use-this-package"></a>
 ## 使用本包
 
-把本包与 `dsh-fs`、`dsh-sandbox-policy`、Session store 和 Typert Gateway 一起挂载；bundle 把它紧随 Session Controller 之后挂载。每个方法都在线路上携带 Session 身份，Client 调用 `remote.workspaceFiles.read(sessionId, path, range, signal)`、`stat(sessionId, path, signal)`、`readBytes(sessionId, path, options, signal)`、`list(sessionId, path, signal)` 或 `changes(sessionId, path, signal)`，从不自己指定根。Host 读取 live Session header，cold Session 则使用持久层 `stat`；它不会激活 Agent、读取事件正文或借用父 Session 的根。live 读取不要求挂载 Session persistence；未挂载时 cold Session 无法解析，Gateway 返回 `gateway/lookup-not-found`。
+将本包与 `dsh-fs`、`dsh-sandbox-policy`、Session store 和 Typert Gateway 一起挂载。冷会话解析还需要 Session persistence 与 `sessionQuery`。各方法携带会话身份，调用方不能自行指定授权目录。活动会话使用会话策略，冷会话使用可释放的投影观察而不激活 Agent。两者恢复相同的固定目录，不受工作区当前配置影响。
 
 | 方法 | 返回 | 用途 |
 |---|---|---|
@@ -37,7 +37,9 @@ kind: "package-reference"
 
 ### 寻址与路径
 
-`read`、`readBytes` 与 `stat` 接受绝对路径或相对于所选 Session 工作区根的路径。组合文件系统决定路径是否可读；本服务不额外要求文件读取限定于工作区。`readBytes` 携带 `options.baseFile` 时，从基准文件所在目录解析相对目标 `path`，基准文件或目标文件位于工作区外时同样适用。基准文件本身接受绝对路径或工作区相对路径。两个文件执行相同的普通文件检查；目标为空、绝对路径、URL 或含 NUL 时拒绝。文件结果报告文件系统执行环境中的绝对路径。`list` 仍限定于工作区，并以相对于该根的路径报告被列举目录。`changes` 使用相同的路径解析：文件监听沿用文件读取权限，目录监听仍限定于工作区。
+目录列举与目录监听接受会话固定的主要或附加目录。列举结果中的 `path` 相对于所属根目录，附加根目录通过 `root` 返回。请求相对路径仍从会话工作目录解析。文件读取与文件监听继续沿用文件系统后端的读取权限。
+
+`read`、`readBytes` 与 `stat` 接受绝对路径或相对于所选 Session 工作区根的路径。组合文件系统决定路径是否可读；本服务不额外要求文件读取限定于工作区。`readBytes` 携带 `options.baseFile` 时，从基准文件所在目录解析相对目标 `path`，基准文件或目标文件位于工作区外时同样适用。基准文件本身接受绝对路径或工作区相对路径。两个文件执行相同的普通文件检查；目标为空、绝对路径、URL 或含 NUL 时拒绝。文件结果报告文件系统执行环境中的绝对路径。
 
 ### 分页
 
@@ -92,7 +94,7 @@ kind: "package-reference"
 
 ### 设计概念
 
-经 `ctx.fs` 的读取使用后端的读取权限；沙箱后端限制写与编辑，而不限制读取。Typert lookup 从 live Session header 或持久层的 header-only `stat` 导出 `WorkspaceFileScope`，所以 cold subagent Session 不需要激活 Agent 或读取事件正文。本服务增加普通文件检查与有界传输，工作区包含要求只属于目录列举与目录监听。页从 `streamText` 切出，后者逐块解码并拒绝非 UTF-8：切页器对窗口之前的行只计数不保留，对窗口内的每个片段先按字节上限验收再缓冲，并在窗口之后的第一个字符处返回。流之前的一次 `stat` 给出页所报告的版本与大小。
+`ctx.fs` 读取沿用后端读取权限；目录列举和监听限定于会话固定的主要与附加目录。Typert lookup 读取活动策略或冷会话投影，不激活 Agent。文件预览保留普通文件检查与传输上限。文本读取在请求页之后停止，前置 stat 提供报告的版本和大小。
 
 完整文件读取将大小上限检查交给 `fs.readBytes`，并通过二进制 Remote 返回原始字节。
 

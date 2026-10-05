@@ -6,6 +6,19 @@
 
 /** Simplified Chinese dictionary (the key-set source of truth). */
 export const zh = {
+  'editor.create': '创建工作区',
+  'editor.edit': '编辑工作区',
+  'editor.save': '保存',
+  'editor.directories': '目录',
+  'editor.primary': '主要',
+  'editor.makePrimary': '设为主要',
+  'editor.makePrimaryPath': '设为主要 {path}',
+  'editor.removePath': '移除 {path}',
+  'editor.addFolder': '添加文件夹',
+  'editor.primaryHint': '主要目录用于新会话的默认工作位置；移除前请先指定其他主要目录',
+  'editor.newChatsOnly': '目录变更仅用于新会话；已有会话保留原目录与访问范围',
+  'editor.duplicateDirectory': '此目录已添加',
+
   'defaultWorkspace.failed': '无法创建默认工作区，请通过“选择工作区”选择文件夹',
   'draft.workspaceRequired': '请先选择工作区',
   'draft.initializationFailed': '暂时无法填入草稿，请稍后重试',
@@ -127,6 +140,19 @@ export type WorkspaceKey = keyof typeof zh
 
 /** English dictionary, checked complete against the zh key set. */
 export const en = {
+  'editor.create': 'Create workspace',
+  'editor.edit': 'Edit workspace',
+  'editor.save': 'Save',
+  'editor.directories': 'Directories',
+  'editor.primary': 'Primary',
+  'editor.makePrimary': 'Make primary',
+  'editor.makePrimaryPath': 'Make primary {path}',
+  'editor.removePath': 'Remove {path}',
+  'editor.addFolder': 'Add folder',
+  'editor.primaryHint': 'The primary directory is the starting location for new chats. Choose another primary before removing it.',
+  'editor.newChatsOnly': 'Directory changes apply to new chats only. Existing chats retain their directories and access.',
+  'editor.duplicateDirectory': 'This directory is already added',
+
   'defaultWorkspace.failed': 'Unable to create default workspace. Use Choose workspace to select a folder.',
   'draft.workspaceRequired': 'Choose a workspace first.',
   'draft.initializationFailed': 'Could not fill the draft. Please try again shortly.',

@@ -75,6 +75,8 @@ This section explains policy resolution, the per-session store, and the model-vi
 
 A runtime switch is one log-only `sandbox/mode` event on the session it applies to — the switch IS its event, and nothing mutates mode state out of band. `effective = explicit grant ?? fold(events) ?? deployment default`, so an override survives restart by replay and two sessions never see each other's state. Workspace identity needs no event: the immutable `SessionHeader.cwd` recorded at creation is the root for every call in that session. The event stays log-only; before each request, the owner contributes the current fact to the full runtime-context snapshot, and the agent loop logs that snapshot as a sourced `user/message`.
 
+New sessions capture additional directories through `setSessionDirectories()` in their unpublished setup. The `sandbox/directories` event and `sandboxDirectories` projection preserve that list across replay; sessions without the event use no additional directories. Workspace edits affect future sessions only. Every mode describes the captured directories, while read-only still denies mutations. The browser-safe `types` export declares the event and projection without loading Host services.
+
 ### Model-visible text
 
 The `sandbox:policy` contribution states the mode's capability-neutral file-effect contract and the recorded session workspace under `workspace-write`. It does not enumerate mounted capabilities; tool plugins retain operation-specific denial and escalation guidance, approval policy contributes separately to the same snapshot, and plan guidance remains `dsh-plan-mode`'s system section.

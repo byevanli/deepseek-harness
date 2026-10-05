@@ -16,6 +16,7 @@ import type {
   IWorkspaces, WorkspaceId, WorkspaceSnapshot, WorkspaceView,
 } from '@deepseek-ai/dsh-api-workspace-controller/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
+import type {} from '@deepseek-ai/dsh-sandbox-policy/types'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type { DraftInitializationOptions } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { RowToast } from './contract/slots.ts'
@@ -188,10 +189,19 @@ class UiWorkspaceService extends Service implements UiWorkspace {
     for (const id of sessions.ids) {
       const summary = sessions.byId[id]
       if (summary === undefined || !summary.blank || summary.cwd !== workspace.path
-        || !workspace.sessionIds.includes(id) || archived.includes(id)) continue
+        || !workspace.sessionIds.includes(id) || archived.includes(id)
+        || !this.sameDirectories(workspace, sessions, id)) continue
       return this.reuseBlank(workspace.workspaceId, id)
     }
     return this.sessions.create({ workspaceId: workspace.workspaceId })
+  }
+
+  /** 空会话只有固定目录与工作区当前配置一致时才能复用。 */
+  private sameDirectories(workspace: WorkspaceView, sessions: SessionListState, id: SessionId): boolean {
+    const captured = sessions.projectionsBySession[id]?.values.sandboxDirectories
+    if (captured === undefined) return false
+    return captured.length === workspace.additionalDirectories.length
+      && captured.every((path, index) => path === workspace.additionalDirectories[index])
   }
 
   private async reuseBlank(workspaceId: WorkspaceId, sessionId: SessionId): Promise<SessionId> {
@@ -360,7 +370,8 @@ class UiWorkspaceService extends Service implements UiWorkspace {
     const navigation = AbortSignal.any([this.ctx.layout.beginNavigation(), this.lifetime.signal])
     let sessionId: SessionId | undefined
     if (summary !== undefined && workspace !== undefined && summary.cwd === workspace.path
-      && !workspaces.archivedSessionIds.includes(summary.id)) {
+      && !workspaces.archivedSessionIds.includes(summary.id)
+      && this.sameDirectories(workspace, sessions, summary.id)) {
       sessionId = await this.reuseBlank(workspace.workspaceId, summary.id)
     }
     let target = workspace?.workspaceId ?? recentWorkspace(workspaces.items, sessions.byId)

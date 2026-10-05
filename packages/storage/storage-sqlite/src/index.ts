@@ -102,7 +102,8 @@ export class SqliteStorageBackend implements StorageBackend {
       | undefined
     if (row === undefined) {
       db.prepare('INSERT INTO units (name, version) VALUES (?, ?)').run(descriptor.name, descriptor.version)
-    } else if (row.version !== descriptor.version) {
+    } else if (row.version !== descriptor.version
+      && !(row.version < descriptor.version && descriptor.compatibleVersions?.includes(row.version))) {
       throw new StorageError(
         'version-mismatch',
         `kv unit '${descriptor.name}' is stamped version ${row.version} on the medium, incompatible with descriptor version ${descriptor.version}`,

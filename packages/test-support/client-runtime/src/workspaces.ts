@@ -1,7 +1,7 @@
 /** Test-owned workspaces face: the renderer standard-kit observable plus recorded actions. */
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type {
-  IWorkspaces, WorkspaceId, WorkspaceSnapshot, WorkspaceView,
+  IWorkspaces, WorkspaceId, WorkspaceSnapshot, WorkspaceView, WorkspaceUpdateRequest, WorkspaceCreateRequest,
 } from '@deepseek-ai/dsh-api-workspace-controller/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { SnapshotStore } from '@deepseek-ai/dsh-client-store'
@@ -46,11 +46,23 @@ export class TestWorkspaces implements IWorkspaces {
   }
 
   /**
-   * Update the workspace list state through an immer draft.
-   * @param mutate - draft mutator.
+   * 修改测试快照或回显完整工作区更新。
+   * @param input - 快照修改器或生产更新请求。
+   * @returns 修改快照时为空，更新工作区时返回投影。
    */
-  async update(mutate: (draft: WorkspaceFixtureSnapshot) => void): Promise<void> {
-    await this.stabilize(() => { this.list.update(mutate) })
+  update(input: (draft: WorkspaceFixtureSnapshot) => void): Promise<void>
+  update(input: WorkspaceUpdateRequest): Promise<WorkspaceView>
+  async update(input: WorkspaceUpdateRequest | ((draft: WorkspaceFixtureSnapshot) => void)): Promise<WorkspaceView | void> {
+    if (typeof input === 'function') {
+      await this.stabilize(() => { this.list.update(input) })
+      return
+    }
+    this.calls.push({ method: 'update', args: [input] })
+    const stub = this.stubs.get('update')
+    if (stub !== undefined) return await (stub(input) as Promise<WorkspaceView>)
+    const current = this.list.getSnapshot().items.find(workspace => workspace.workspaceId === input.workspaceId)
+    if (current === undefined) throw new Error('workspace not found')
+    return { ...current, ...input }
   }
 
   /**
@@ -68,14 +80,15 @@ export class TestWorkspaces implements IWorkspaces {
    * @param input - the Host create payload.
    * @returns the created Workspace view.
    */
-  async create(input: { path: string }): Promise<WorkspaceView> {
+  async create(input: WorkspaceCreateRequest): Promise<WorkspaceView> {
     this.calls.push({ method: 'create', args: [input] })
     const stub = this.stubs.get('create')
     if (stub !== undefined) return await (stub(input) as Promise<WorkspaceView>)
     return {
       workspaceId: `ws-${input.path}` as WorkspaceId,
-      title: input.path,
+      title: input.title ?? input.path,
       path: input.path,
+      additionalDirectories: input.additionalDirectories ?? [],
       sessionIds: [],
     } as unknown as WorkspaceView
   }

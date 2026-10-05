@@ -4,6 +4,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { Workspace } from '@deepseek-ai/dsh-workspace'
 import {
   WorkspaceActiveSessionError,
+  WorkspaceConfigurationConflictError,
   WorkspaceArchivedSessionPinError,
   WorkspaceId,
   WorkspaceMoveInvalidError,
@@ -16,6 +17,7 @@ import type {
   WorkspaceArchiveSessionRequest,
   WorkspaceArchiveValue,
   WorkspaceCreateRequest,
+  WorkspaceUpdateRequest,
   WorkspaceCreateValue,
   WorkspaceDeleteRequest,
   WorkspaceDeleteValue,
@@ -46,12 +48,18 @@ export class WorkspaceCommands {
     return this.enqueue(async () => {
       try {
         const existing = await this.ctx.workspaceRegistry.resolveByPath(request.path)
-        if (existing !== undefined) {
+        if (existing !== undefined && request.title === undefined && request.additionalDirectories === undefined) {
           return { workspace: workspaceView(existing), created: false }
         }
-        const workspace = await this.ctx.workspaceRegistry.create(request.path)
-        return { workspace: workspaceView(workspace), created: true }
+        const title = request.title === undefined ? undefined : this.validateTitle(request.title)
+        if (title !== undefined && existing === undefined) this.checkTitle(title)
+        const workspace = await this.ctx.workspaceRegistry.create({ ...request, ...(title === undefined ? {} : { title }) })
+        return { workspace: workspaceView(workspace), created: existing === undefined }
       } catch (error) {
+        if (error instanceof WorkspaceConfigurationConflictError) {
+          throw new RemoteError('workspace/configuration-conflict', error.message,
+            { workspaceId: error.workspaceId }, { cause: error })
+        }
         if (remoteErrorOf(error) !== undefined) throw error
         throw new RemoteError(
           'workspace/invalid-path',
@@ -61,6 +69,37 @@ export class WorkspaceCommands {
         )
       }
     })
+  }
+
+  /**
+   * 校验完整配置后一次写入；拒绝时保留原记录。
+   * @param request - Workspace 标识、名称与明确的主要目录。
+   * @returns 更新后的投影。
+   */
+  update(request: WorkspaceUpdateRequest): Promise<WorkspaceValue> {
+    return this.enqueue(async () => {
+      const workspace = this.requireWorkspace(request.workspaceId)
+      const title = this.validateTitle(request.title)
+      this.checkTitle(title, workspace.id)
+      try {
+        const updated = await this.ctx.workspaceRegistry.update(workspace.id, { ...request, title })
+        return { workspace: workspaceView(updated) }
+      } catch (error) {
+        throw new RemoteError('workspace/invalid-path', errorMessage(error), { path: request.path }, { cause: error })
+      }
+    })
+  }
+
+  private validateTitle(input: string): string {
+    const title = input.trim()
+    if (title === '') throw new RemoteError('gateway/bad-request', 'Workspace requires a non-blank title', {})
+    return title
+  }
+
+  private checkTitle(title: string, workspaceId?: string): void {
+    if (this.ctx.workspaceRegistry.list().some(candidate => candidate.id !== workspaceId && candidate.title === title)) {
+      throw new RemoteError('workspace/name-conflict', `Workspace name '${title}' is already in use`, { name: title })
+    }
   }
 
   /**

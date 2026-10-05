@@ -9,7 +9,7 @@ import { z } from 'zod'
 import { createHelperHarness } from './fixtures/helper.ts'
 import { runSshHelper } from '../src/helper.ts'
 import { RemoteProcesses } from '../src/helper-processes.ts'
-import { helloSchema, preparedSchema, targetSchema } from '../src/schemas.ts'
+import { helloSchema, policySchema, preparedSchema, targetSchema } from '../src/schemas.ts'
 import { SSH_MAX_TEXT_STREAMS } from '../src/protocol.ts'
 
 const entryPath = fileURLToPath(new URL('../src/helper-entry.ts', import.meta.url))
@@ -228,4 +228,12 @@ describe.skipIf(process.platform === 'win32')('SSH helper wire and lifecycle bou
       await expect(test.client.request('process.wait', { id: 'malformed' }, z.unknown())).rejects.toThrow()
     } finally { await test.close() }
   })
+})
+
+
+it('SSH policies preserve absolute additional roots and reject relative or unknown fields', () => {
+  const policy = { mode: 'workspace-write', workspaceRoot: '/primary', additionalDirectories: ['/secondary'] }
+  expect(policySchema.parse(policy)).toEqual(policy)
+  expect(() => policySchema.parse({ ...policy, additionalDirectories: ['relative'] })).toThrow()
+  expect(() => policySchema.parse({ ...policy, extra: true })).toThrow()
 })

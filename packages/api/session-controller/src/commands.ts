@@ -19,6 +19,7 @@ import { buildForkSeed } from '@deepseek-ai/dsh-session/fork'
 import { SessionLogOffset, SessionSeq } from '@deepseek-ai/dsh-session'
 import type { SessionEvent, SessionHeader, SessionId, UserMessage } from '@deepseek-ai/dsh-session'
 import { SessionQueryError, type SessionObservation } from '@deepseek-ai/dsh-session-query'
+import { setSessionDirectories } from '@deepseek-ai/dsh-sandbox-policy'
 import { SessionTitleInvalidError } from '@deepseek-ai/dsh-session-title'
 import { canonicalClientTimeZone } from '@deepseek-ai/dsh-util-time'
 import { assertNever } from '@deepseek-ai/dsh-util-values'
@@ -124,6 +125,7 @@ export class SessionCommandController {
         cwd,
         request.sessionId !== undefined,
         request.agentPreset,
+        ...(workspace === undefined ? [] : [workspace.additionalDirectories]),
       )
     } catch (error) {
       this.rejectCreation(sessionId, error)
@@ -280,7 +282,12 @@ export class SessionCommandController {
             : { agentPreset: composition.agentPreset }),
         },
         agentOptions: { provider, model },
-        setup: composition.setup,
+        setup: async (agentCtx, agent) => {
+          if (!seed.some(event => event.type === 'sandbox/directories')) {
+            setSessionDirectories(agent.session, source.projections?.values.sandboxDirectories ?? [], this.ctx.sessionProjections)
+          }
+          return await composition.setup(agentCtx, agent)
+        },
       })
     } catch (error) {
       throw new RemoteError(

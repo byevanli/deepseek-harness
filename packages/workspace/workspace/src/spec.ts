@@ -17,12 +17,12 @@ const workspaceId = z.string().transform(value => value as WorkspaceId)
 const sessionId = z.string().transform(value => brandString<SessionId>(value))
 
 /**
- * Durable shape of one workspace record. `path` is the `fs.realpath` canon
- * stamped at create; `sessionIds` is the ordered ownership account (array
- * order is display order); timestamps are ISO-8601 strings.
+ * 持久化 Workspace 记录；path 是明确的规范主要目录，旧版本缺少附加目录时补空列表。
+ * sessionIds 保存归属与显示顺序，时间戳使用 ISO-8601。
  */
 export const workspaceRecord = z.object({
   path: z.string(),
+  additionalDirectories: z.array(z.string()).default([]),
   title: z.string(),
   sessionIds: z.array(sessionId),
   createdAt: z.string(),
@@ -75,7 +75,8 @@ export type WorkspaceDomainState = z.infer<typeof workspaceDomainState>
  */
 export const workspaceDomainSpec = defineDomain({
   name: 'workspace',
-  version: 2,
+  version: 3,
+  compatibleVersions: [2],
   global: {
     schema: workspaceDomainState,
     initial: { initialized: false, workspaceIds: [], archivedSessionIds: [], pinnedSessionIds: [] },

@@ -35,12 +35,12 @@ Source files under `src/client/`: `definition.tsx` (the type), `store.ts` (what 
 <a id="the-tree"></a>
 ## The tree
 
-The root is the session's working directory, read from `useSessions().byId[sessionId].cwd`. Filesystem roots such as `/` and Windows drive roots are valid tree roots. Every level is keyed by absolute path; a child's path is its parent's joined with the entry name by `/`. A level is listed when it is first expanded, through `remote.workspaceFiles.list(sessionId, absolutePath)` on the `@deepseek-ai/dsh-api-workspace-files` namespace; the adapter keeps the listing's entries and truncation flag and drops its workspace-relative path. Rows are ordered directories first, then by natural, case-insensitive name; dotfiles are shown like any other entry.
+The Files panel shows the session working directory and its captured additional directories as separate roots. The working directory comes from `useSessions().byId[sessionId].cwd`; `useProjection('sandboxDirectories')` supplies the fixed additional roots. Each root expands and refreshes independently. Every level uses an absolute path and lists through `remote.workspaceFiles.list(sessionId, absolutePath)`. Entries remain directories-first with natural, case-insensitive ordering, including dotfiles.
 
 | Entry type | Row |
 |---|---|
 | `directory` | Toggles; reopening lists again and restores still-present expanded descendants. Displayed entries remain cached while collapsed. |
-| `file` | Opens `dsh-resource://file/session/<sessionId>/<encoded path relative to the root>`, built by `fileAddressFor` from `@deepseek-ai/dsh-util-workspace-path` from the entry's absolute path and the tree's root, through `useTabInfo().tab.actions.openResource`, landing in the tab's own pane. |
+| `file` | Opens through `fileAddressFor(sessionId, cwd, absolutePath)` in the tab's own pane. Files below the primary directory use session-relative addresses; other captured roots retain absolute paths. |
 | `other` | Shown greyed and not clickable, so the directory is reported whole. |
 
 A level cut by the endpoint's entry cap ends with a marker; an empty level says so; a level that failed shows one line per code — `workspace-file/not-found`, `outside-workspace`, `not-directory` — and the transport's own message otherwise. Reload refreshes the root and expanded levels in place, retaining displayed entries during reads instead of resetting the whole tree; collapsed levels are fetched again when they next open. A session without a working directory shows a single line instead of a tree.

@@ -236,7 +236,7 @@ export function ProjectRowItem({ group, containsCurrentDescendant = false, onTog
   const active = containsCurrentDescendant || (group.expanded && group.containsCurrent)
   const [menuOpen, setMenuOpen] = useState(false)
   const workspaceMenuItems = [
-    { id: 'rename', label: t('rename'), icon: <IconEditOutlineRegular /> },
+    { id: 'rename', label: t('editor.edit'), icon: <IconEditOutlineRegular /> },
     { id: 'delete', label: t('delete.workspace'), icon: <IconTrashOutlineRegular />, danger: true },
   ]
   const ownRow = (

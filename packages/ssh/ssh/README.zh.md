@@ -11,6 +11,8 @@ kind: "package-reference"
 
 `dsh-ssh` 将 POSIX Harness 主机连接到 POSIX SSH 主机上已安装的辅助程序。部署方持有的 OpenSSH 主机别名提供认证与主机身份；配套的文件系统、子进程和沙箱提供方共享该连接。连接在就绪前验证已安装产物的摘要；辅助程序在连接关闭或租期到期时负责远端清理。
 
+SSH 策略请求的严格 schema 保留 `additionalDirectories`。helper 在远端文件系统中解析每个目录，然后向文件系统和进程沙箱提供方传递策略。
+
 ## 目录
 
 - [使用本包](#use-this-package)

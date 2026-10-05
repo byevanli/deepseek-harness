@@ -20,6 +20,7 @@
  * @module @deepseek-ai/dsh-sandbox-policy
  */
 
+export type * from './types.ts'
 import { isAbsolute } from 'node:path'
 import { Context, Service } from '@deepseek-ai/cordis'
 import { z as zod } from 'zod'
@@ -30,6 +31,8 @@ import type { Session } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-session-projection'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 
+export { setSessionDirectories } from './session-directories.ts'
+
 export { SANDBOX_MODES, setSandboxMode } from './session-mode.ts'
 
 /** Preserve execution-world spelling; enforcing providers resolve filesystem identity on their host. */
@@ -39,7 +42,7 @@ function resolveWorkspaceRoot(path: string): string {
 }
 
 /** Render the policy without claiming which capabilities are mounted. */
-function renderPolicyContext(policy: SandboxExecutionPolicy): string {
+function renderModeContext(policy: SandboxExecutionPolicy): string {
   switch (policy.mode) {
     case 'read-only':
       return 'Current DSH file policy: read-only. Any available operation enforced by the DSH file sandbox cannot modify files in the standing mode. Do not refuse a required modification from this policy alone: try an available tool normally and follow any denial and escalation guidance it returns.'
@@ -53,6 +56,14 @@ function renderPolicyContext(policy: SandboxExecutionPolicy): string {
       throw new Error(`unreachable sandbox mode: ${String(mode)}`)
     }
   }
+}
+
+/** 为所有模式附上同一份已持久化目录说明。 */
+function renderPolicyContext(policy: SandboxExecutionPolicy): string {
+  const mode = renderModeContext(policy)
+  return policy.additionalDirectories === undefined
+    ? mode
+    : `${mode} Additional session directories: ${JSON.stringify(policy.additionalDirectories)}.`
 }
 
 declare module '@deepseek-ai/cordis' {
@@ -138,6 +149,21 @@ export class SandboxPolicyService extends Service {
       apply: (state, event) => (event.type === 'sandbox/mode' ? event.data.mode : state),
     })
 
+    const directoriesSchema = zod.array(zod.string().refine(isAbsolute, 'directory must be absolute'))
+    const emptyDirectories: readonly string[] = Object.freeze([])
+    ctx.sessionProjections.register({
+      key: 'sandboxDirectories',
+      stateVersion: 1,
+      stateSchema: directoriesSchema.nullable(),
+      init: () => null,
+      apply: (state, event) => {
+        if (event.type !== 'sandbox/directories') return state
+        if (state !== null) throw new Error('session directories already initialized')
+        return directoriesSchema.parse(event.data.additionalDirectories)
+      },
+      wire: { viewSchema: directoriesSchema, view: state => state ?? emptyDirectories },
+    })
+
     ctx.inject(['systemPrompt'], (scope: Context) => {
       scope.systemPrompt.context({
         name: 'sandbox:policy',
@@ -163,11 +189,22 @@ export class SandboxPolicyService extends Service {
    */
   resolve(request: SandboxPolicyRequest = {}): SandboxExecutionPolicy {
     const { session } = request
+    const directories = session === undefined ? [] : this.directoriesOf(session)
     return {
+      ...directories.length === 0 ? {} : { additionalDirectories: directories },
       mode: request.mode ?? (session === undefined ? undefined : this.overrideOf(session)) ?? this.defaultMode,
       workspaceRoot: resolveWorkspaceRoot(session?.header.cwd ?? this.workspaceRoot),
       ...session === undefined ? {} : { sessionId: session.id },
     }
+  }
+
+  /**
+   * 读取会话目录快照，未初始化的旧会话使用空列表。
+   * @param session - 目录所属会话。
+   * @returns 捕获的附加目录。
+   */
+  directoriesOf(session: Session): readonly string[] {
+    return this.ctx.sessionProjections.stateOf(session, 'sandboxDirectories') ?? []
   }
 
   /**

@@ -39,7 +39,13 @@ describe('Workspace Files Session scope lookup', () => {
     })
     const ctx = new Context()
     ctx.provide('fs', {} as never)
-    ctx.provide('sandboxPolicy', { workspaceRoot: fallbackRoot } as never)
+    ctx.provide('sandboxPolicy', { workspaceRoot: fallbackRoot, resolve: () => ({ workspaceRoot: liveRoot, additionalDirectories: ['/live-extra'] }) } as never)
+    const observeSession = vi.fn(async (id: SessionId) => ({
+      header: header(id, id === coldId ? coldRoot : undefined),
+      projections: { values: { sandboxDirectories: id === coldId ? ['/cold-extra'] : [] } },
+      [Symbol.dispose]: vi.fn(),
+    }))
+    ctx.provide('sessionQuery', { observeSession } as never)
     ctx.provide('sessionPersistence', { stat } as never)
     const sessions = await ctx.plugin(SessionStore)
     const typert = await ctx.plugin(TypertRegistry)
@@ -57,10 +63,13 @@ describe('Workspace Files Session scope lookup', () => {
       })
       if (lookup === undefined) throw new Error('workspaceFileScope lookup did not register')
 
-      await expect(lookup.resolve(liveId)).resolves.toEqual({ sessionId: liveId, workspaceRoot: liveRoot })
+      await expect(lookup.resolve(liveId)).resolves.toEqual({
+        sessionId: liveId, workspaceRoot: liveRoot, additionalDirectories: ['/live-extra'] })
       expect(stat).not.toHaveBeenCalled()
-      await expect(lookup.resolve(coldId)).resolves.toEqual({ sessionId: coldId, workspaceRoot: coldRoot })
-      await expect(lookup.resolve(fallbackId)).resolves.toEqual({ sessionId: fallbackId, workspaceRoot: fallbackRoot })
+      await expect(lookup.resolve(coldId)).resolves.toEqual({
+        sessionId: coldId, workspaceRoot: coldRoot, additionalDirectories: ['/cold-extra'] })
+      await expect(lookup.resolve(fallbackId)).resolves.toEqual({
+        sessionId: fallbackId, workspaceRoot: fallbackRoot, additionalDirectories: [] })
       await expect(lookup.resolve(missingId)).resolves.toBeUndefined()
       expect(stat.mock.calls.map(([id]) => id)).toEqual([coldId, fallbackId, missingId])
 

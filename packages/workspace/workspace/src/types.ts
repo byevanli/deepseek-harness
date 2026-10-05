@@ -55,21 +55,18 @@ export interface SessionActivity {
 }
 
 /**
- * One workspace: a stable id over an existing directory, a display title, and
- * an ordered candidate account of sessions. Membership requires both an id in
- * that account and a session header whose canonical cwd equals the workspace
- * path. Consumers only see this interface; the implementation stays private.
+ * 一个具有稳定标识、主要目录、附加目录、名称与有序 Session 归属的 Workspace。
+ * 目录变更或目录失效不会改变已有 Session 归属。
  */
 export interface Workspace {
   /** Stable record id (generated uuid). */
   readonly id: WorkspaceId
 
-  /**
-   * Canonical directory path: the `fs.realpath` of the path given at create
-   * time (trailing slashes, `..`, and symlinks all resolved). Never rewritten
-   * afterwards, even when the directory disappears (see {@link status}).
-   */
+  /** 明确的规范主要目录；仅显式配置更新时替换，目录失效不自动替换。 */
   readonly path: string
+
+  /** 已保存的附加规范目录，不影响已关联 Session 的归属。 */
+  readonly additionalDirectories: readonly string[]
 
   /** Display title. Defaults to the final path segment, or a filesystem root's own spelling; duplicates are allowed. */
   readonly title: string
@@ -80,14 +77,7 @@ export interface Workspace {
   /** ISO-8601 instant of the last durable mutation (create counts as one). */
   readonly updatedAt: string
 
-  /**
-   * Header-validated sessions in manually owned order: a new session is
-   * prepended at attach, explicit reordering goes through
-   * `insertSessionBefore`, and activity never reorders. The durable candidate
-   * account is filtered synchronously: missing headers, invalid cwd values,
-   * and canonical cwd mismatches are never returned. A subsequent workspace
-   * mutation prunes those filtered candidates durably.
-   */
+  /** 持久化的 Session 归属，新增时置前，活动或目录变更不重排。 */
   readonly sessionIds: readonly SessionId[]
 
   /**
@@ -98,39 +88,24 @@ export interface Workspace {
   setTitle(title: string): Promise<void>
 
   /**
-   * Prepend a session to this workspace's candidate account. An already
-   * accounted id resolves without writing, aside from the durable
-   * filtered-candidate prune every accepted mutation performs. A new id's
-   * live or persisted
-   * header cwd must resolve to an existing directory equal to {@link path};
-   * unknown ids, missing or invalid cwd values, and mismatches reject without
-   * writing.
-   * @param sessionId - The session to record.
-   * @returns resolution after durability.
+   * 关联一个已保存或正在运行的 Session，其他 Workspace 已占用时拒绝。
+   * @param sessionId - 要关联的 Session。
+   * @returns 持久化完成通知；已关联的请求不重复写入。
    */
   attachSession(sessionId: SessionId): Promise<void>
 
   /**
-   * Move an accounted session within the manual order, DOM-insertBefore-like:
-   * with an anchor the session lands before it, without one it appends to the
-   * end. Only the moved id changes position. A session or anchor absent from
-   * the account rejects without writing; a move to the current position
-   * resolves without writing, aside from the durable filtered-candidate
-   * prune every accepted mutation performs; decided on the domain write
-   * chain.
-   * @param sessionId - The accounted session to move.
-   * @param beforeSessionId - Accounted anchor to insert before; omitted appends.
-   * @returns resolution after durability.
+   * 移动已关联 Session，有锚点时插入其前，无锚点时移至末尾。
+   * @param sessionId - 已关联 Session。
+   * @param beforeSessionId - 已关联锚点；省略时追加。
+   * @returns 持久化完成通知；未知 Session 或锚点拒绝，原位移动不写入。
    */
   insertSessionBefore(sessionId: SessionId, beforeSessionId?: SessionId): Promise<void>
 
   /**
-   * Remove a session from this workspace's account. Idempotent: an id not on
-   * the account resolves without writing, aside from the durable
-   * filtered-candidate prune every accepted mutation performs; decided on
-   * the domain write chain like attach. Never touches the session's own stored log.
-   * @param sessionId - The session to remove.
-   * @returns resolution after durability.
+   * 移除关联的 Session，未关联的标识不写入，不修改 Session 日志。
+   * @param sessionId - 要移除的 Session。
+   * @returns 持久化完成通知。
    */
   detachSession(sessionId: SessionId): Promise<void>
 

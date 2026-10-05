@@ -305,7 +305,7 @@ export interface Config {
 ## `@deepseek-ai/dsh-api-workspace-controller`
 
 - `inject`: `typert` · `workspaceRegistry`
-- `source`: [`packages/api/workspace-controller/src/index.ts:33`](../packages/api/workspace-controller/src/index.ts)
+- `source`: [`packages/api/workspace-controller/src/index.ts:34`](../packages/api/workspace-controller/src/index.ts)
 
 ```ts config-catalog
 /** First-use directory policy for the Host account. */
@@ -324,7 +324,7 @@ export interface Config {
 ## `@deepseek-ai/dsh-api-workspace-files`
 
 - `inject`: `fs` · `sandboxPolicy` · `sessions` · `typert`
-- `source`: [`packages/api/workspace-files/src/index.ts:70`](../packages/api/workspace-files/src/index.ts)
+- `source`: [`packages/api/workspace-files/src/index.ts:74`](../packages/api/workspace-files/src/index.ts)
 
 ```ts config-catalog
 /** Deployment caps on one page or one listing. */
@@ -2475,7 +2475,7 @@ export interface Config {
 
 - `inject`: `sessionProjections`
 - `refs`: [`SandboxMode`](subsystems/sandbox.zh.md)
-- `source`: [`packages/sandbox/sandbox-policy/src/index.ts:71`](../packages/sandbox/sandbox-policy/src/index.ts)
+- `source`: [`packages/sandbox/sandbox-policy/src/index.ts:82`](../packages/sandbox/sandbox-policy/src/index.ts)
 
 ```ts config-catalog
 /**
@@ -3114,7 +3114,7 @@ export interface Config {
 ## `@deepseek-ai/dsh-subagent-acp`
 
 - `inject`: `subagents` · `subprocess`
-- `source`: [`packages/subagent/subagent-acp/src/index.ts:27`](../packages/subagent/subagent-acp/src/index.ts)
+- `source`: [`packages/subagent/subagent-acp/src/index.ts:28`](../packages/subagent/subagent-acp/src/index.ts)
 
 ```ts config-catalog
 /** Config: how to spawn and drive the child ACP agent process. */
@@ -3168,7 +3168,7 @@ export type PermissionPolicy = 'allow' | 'reject'
 ## `@deepseek-ai/dsh-subagent-claude-code`
 
 - `inject`: `subagents` · `subprocess`
-- `source`: [`packages/subagent/subagent-claude-code/src/index.ts:38`](../packages/subagent/subagent-claude-code/src/index.ts)
+- `source`: [`packages/subagent/subagent-claude-code/src/index.ts:39`](../packages/subagent/subagent-claude-code/src/index.ts)
 
 ```ts config-catalog
 /** Deployment-owned model, permission, environment, and process-release settings. */
@@ -3238,7 +3238,7 @@ export type CodexPermissionMode =
 ## `@deepseek-ai/dsh-subagent-dsh-sdk`
 
 - `inject`: `subagents`
-- `source`: [`packages/subagent/subagent-dsh-sdk/src/index.ts:34`](../packages/subagent/subagent-dsh-sdk/src/index.ts)
+- `source`: [`packages/subagent/subagent-dsh-sdk/src/index.ts:35`](../packages/subagent/subagent-dsh-sdk/src/index.ts)
 
 ```ts config-catalog
 /** Config: how to spawn and drive the child SDK runtime process. */

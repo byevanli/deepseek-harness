@@ -74,6 +74,8 @@ The fence is a policy check in trusted code over a model-controlled path — not
 
 Each mutation resolves the per-call policy (`danger-full-access` returns the caller's target untouched; `read-only` throws `FS_SANDBOX_DENIED`), then for `workspace-write` re-canonicalizes the target immediately and requires containment under one of the writable roots derived from the single `writableRoots` function — the same set the Seatbelt profile grants, so the fs fence and the bash runner cannot drift. The fresh target is the one mutated, so a symlink ancestor swapped since the tool resolved it is caught.
 
+Workspace-write checks the resolved target against the captured primary and additional directories plus existing temporary grants. An additional-directory grant never permits an unrelated sibling path, and read-only rejects writes to every captured root.
+
 ### Threat model
 
 The residual resolve-to-syscall TOCTOU is narrowed by re-canonicalizing immediately before the write and is accepted for this threat model; a kernel-tight boundary would need `openat2`-class primitives whose portability cost is not worth it here. A denial is a structured `FsError`, not stderr inference — an in-process fence knows exactly what it refused.

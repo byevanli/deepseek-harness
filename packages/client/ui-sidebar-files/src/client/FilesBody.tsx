@@ -1,13 +1,4 @@
-/**
- * The file tree's body: the session's workspace root, listed one level at a time.
- *
- * Everything the tree keeps lives in its store, keyed by tab; everything it asks
- * for goes through its injected face. The component itself only decides what to
- * draw for each absolute path and what a click means: a directory toggles, a
- * file opens through the owner's `tabActions` for a `file:` viewer to claim, and
- * anything else is shown but refuses to open. The header uses the shared
- * PathLabel for the root, followed by reload and workspace directory actions.
- */
+/** 会话固定目录的文件树；各根独立展开，文件资源地址始终按会话工作目录解析。 */
 import { useEffect, useLayoutEffect, useRef } from 'react'
 import type { ReactNode } from 'react'
 import clsx from 'clsx'
@@ -24,6 +15,7 @@ import type { WorkspaceDirectoryEntry } from '@deepseek-ai/dsh-api-workspace-fil
 import { childPath } from './face.ts'
 import type { FilesInjected } from './face.ts'
 import type {} from './locales.ts'
+import type {} from '@deepseek-ai/dsh-sandbox-policy/types'
 import type { FilesTabState, createFilesStore } from './store.ts'
 import css from './FilesBody.module.css'
 
@@ -138,13 +130,14 @@ function Level({ path, tree }: { path: string; tree: TreeContext }): ReactNode {
 
 /** The file tree's body: the workspace root and whatever the reader has opened under it. */
 export function FilesBody({
-  useTabInfo, sessionId, useSessions, useStore, actions,
+  useTabInfo, sessionId, useSessions, useProjection, useStore, actions,
   start, refresh, setAutoRefresh, toggle, t, renderSlot,
 }: FilesBodyProps): ReactNode {
   const { tab } = useTabInfo()
   useEffect(() => tab.actions.bindCommands({ refresh: () => { refresh(tab.id) } }), [tab.actions, tab.id, refresh])
   const { signal, actions: tabActions } = tab
   const cwd = useSessions(sessions => sessions.byId[sessionId]?.cwd)
+  const additionalRoots = useProjection('sandboxDirectories')
   const state = useStore(store => store.byTab[tab.id])
   const bodyRef = useRef<HTMLDivElement>(null)
   const scrollTopRef = useRef(0)
@@ -169,8 +162,9 @@ export function FilesBody({
     // A bucket gone because the record aborted must not be re-seeded by a
     // component that has not unmounted yet.
     if (state !== undefined || cwd === undefined || signal.aborted) return
-    start(tab.id, cwd, signal)
-  }, [state, cwd, tab.id, signal, start])
+    if (additionalRoots === undefined) return
+    start(tab.id, cwd, signal, additionalRoots)
+  }, [state, cwd, tab.id, signal, start, additionalRoots])
 
   if (cwd === undefined) {
     return (
@@ -183,8 +177,8 @@ export function FilesBody({
   const tree: TreeContext = {
     state,
     onToggle: (parent, path) => { toggle(tab.id, parent, path, state.expanded, signal) },
-    // Every row is under the tree's root, so its address is session-relative.
-    onOpen: (path) => { tabActions.openResource(fileAddressFor(sessionId, state.root, path)) },
+    // 附加根的文件必须保留绝对路径，避免按主要目录解析到同名文件。
+    onOpen: (path) => { tabActions.openResource(fileAddressFor(sessionId, cwd, path)) },
     t,
   }
   const reload = (): void => {
@@ -224,7 +218,13 @@ export function FilesBody({
         data-files-body
         onScroll={(event) => { scrollTopRef.current = event.currentTarget.scrollTop }}
       >
-        <ul className={css.level}><Level path={state.root} tree={tree} /></ul>
+        {[state.root, ...state.additionalRoots].map(root => <div key={root}>
+          {state.additionalRoots.length > 0 && <div className={css.header}>
+            <PathLabel path={root} className={css.path} />
+            {root === cwd && <span>{t('directory.primary')}</span>}
+          </div>}
+          <ul className={css.level}><Level path={root} tree={tree} /></ul>
+        </div>)}
       </div>
     </div>
   )

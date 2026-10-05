@@ -84,6 +84,8 @@ Windows 档为每个工作区保留一个确定性写入 SID 和常驻 ACE，同
 
 构建后的 ACL runner 缺失时，源码启动将 `tsx/esm/api` 加载器和 TypeScript 路径映射固定到本安装目录。命令的工作目录和环境中的 `TSX_TSCONFIG_PATH` 无法选择 runner 的源码依赖。
 
+本地配置对捕获的主要目录和附加目录授权。Windows 后端为每个目录分配独立的长期能力 SID，并按会话与完整目录列表缓存私有临时授权；后续单目录会话不会获得附加目录能力。
+
 ### 拒绝与 runner 失败方言
 
 每个 runner 的内核都有自己的拒绝方言，随每次包装以 `denialSignatures` 携带，`runnerFailureRules` 则给出每个 runner 的致命签名，因此消费方先分类 runner 拒绝，再检查拒绝签名。精确的字符串与退出码位于 [`src/index.ts`](src/index.ts)。

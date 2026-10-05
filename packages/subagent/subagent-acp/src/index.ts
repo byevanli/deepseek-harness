@@ -9,6 +9,7 @@
 
 import { accessSync, constants, statSync } from 'node:fs'
 import { isAbsolute, resolve } from 'node:path'
+import { assertSingleDirectoryParent } from '@deepseek-ai/dsh-subagent'
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import type {
@@ -157,6 +158,7 @@ class AcpProvider implements SubagentProvider {
   constructor(readonly name: string, private readonly ctx: Context, private readonly config: ResolvedConfig) {}
 
   start(request: ResolvedSubagentStartRequest) {
+    assertSingleDirectoryParent(request.parent, this.ctx.get('sandboxPolicy'))
     if (request.signal.aborted) {
       throw new Error('subagent request was aborted before the ACP child started')
     }

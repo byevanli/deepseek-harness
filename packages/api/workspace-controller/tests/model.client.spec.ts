@@ -6,6 +6,7 @@ import type {
   WorkspaceArchiveSessionRequest,
   WorkspaceArchiveValue,
   WorkspaceCreateRequest,
+  WorkspaceUpdateRequest,
   WorkspaceCreateValue,
   WorkspaceDeleteRequest,
   WorkspaceDeleteValue,
@@ -37,6 +38,7 @@ function workspace(
   return {
     workspaceId: wid(id),
     path: `/w/${id}`,
+    additionalDirectories: [],
     title: id,
     sessionIds,
     createdAt: '2026-01-01T00:00:00.000Z',
@@ -73,6 +75,8 @@ class FakeWorkspaceRemote implements WorkspaceRemote {
   readonly calls: Array<{ readonly method: string; readonly request: unknown }> = []
   onCreate: (request: WorkspaceCreateRequest) => Promise<RemoteResult<WorkspaceCreateValue>> = request =>
     Promise.resolve(remoteOk({ workspace: workspace(request.path.split('/').pop() ?? 'workspace'), created: true }))
+  onUpdate: (request: WorkspaceUpdateRequest) => Promise<RemoteResult<WorkspaceValue>> = request =>
+    Promise.resolve(remoteOk({ workspace: { ...workspace(request.workspaceId), ...request } }))
   onRename: (request: WorkspaceRenameRequest) => Promise<RemoteResult<WorkspaceValue>> = request =>
     Promise.resolve(remoteOk({ workspace: { ...workspace(String(request.workspaceId)), title: request.title } }))
   onDelete: (_request: WorkspaceDeleteRequest) => Promise<RemoteResult<WorkspaceDeleteValue>> = () =>
@@ -106,6 +110,11 @@ class FakeWorkspaceRemote implements WorkspaceRemote {
   create(request: WorkspaceCreateRequest): Promise<RemoteResult<WorkspaceCreateValue>> {
     this.record('create', request)
     return this.onCreate(request)
+  }
+
+  update(request: WorkspaceUpdateRequest): Promise<RemoteResult<WorkspaceValue>> {
+    this.record('update', request)
+    return this.onUpdate(request)
   }
 
   rename(request: WorkspaceRenameRequest): Promise<RemoteResult<WorkspaceValue>> {
@@ -171,6 +180,20 @@ function baseline(
 }
 
 describe('ClientWorkspaceModel', () => {
+  it('merges complete configuration saves and retains the last snapshot after refused updates', async () => {
+    const remote = new FakeWorkspaceRemote()
+    const model = modelFor(remote)
+    baseline(model, [workspace('one')])
+    const input = { workspaceId: wid('one'), path: '/primary', title: 'Named', additionalDirectories: ['/secondary'] }
+    await expect(model.update(input)).resolves.toMatchObject({ ok: true })
+    expect(remote.calls).toContainEqual({ method: 'update', request: input })
+    expect(model.getSnapshot().items[0]).toMatchObject(input)
+    const before = model.getSnapshot()
+    remote.onUpdate = async () => workspaceError(new RemoteError('workspace/invalid-path', 'missing', { path: '/missing' }))
+    await expect(model.update({ ...input, path: '/missing' })).resolves.toMatchObject({ ok: false })
+    expect(model.getSnapshot()).toBe(before)
+  })
+
   it('publishes the prepared Workspace and leaves the list unchanged on refusal', async () => {
     const remote = new FakeWorkspaceRemote()
     const model = modelFor(remote)

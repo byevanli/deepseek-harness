@@ -2,7 +2,7 @@
 
 English | [中文](workspace.zh.md)
 
-A workspace is the persistent record of a directory the user works in: a stable id over a canonical path, a display title, and the ordered account of sessions that belong to it. The subsystem is one package ([dsh-workspace](../../packages/workspace/workspace), `ctx.workspaceRegistry`) — an optional host-side capability, not part of the agent-loop spine, and invisible to models (no tools, no prompt text, no session events). It stores its records through the [storage domain form](storage.md) and validates session membership against [`SessionHeader.cwd`](persistence.md#sessionheader--metadata-beside-the-log), so `storageDomain` and `sessionPersistence` are mandatory startup dependencies: an unavailable persistence peer leaves the plugin pending rather than being mistaken for an empty history. Design record: [domain KV storage Agent Note](../../.agents/notes/proposed/architecture/2026-07-24-domain-kv-storage-and-workspace.md); bootstrap and GUI ordering: [Workspace UI product-flow Agent Note](../../.agents/notes/archived/feature/2026-07-25-workspace-ui-product-flow.md).
+A Workspace is a persistent identity, display title, explicit primary directory, secondary directories and ordered Session account. The [workspace package](../../packages/workspace/workspace), `ctx.workspaceRegistry`, stores these records through the [storage domain form](storage.md). The registry contributes no model tools or prompt text. `storageDomain` and `sessionPersistence` are required startup dependencies, so unavailable persistence cannot be mistaken for empty history; directory changes and missing directories never remove existing ownership.
 
 Source: [`packages/workspace/workspace/src/types.ts`](../../packages/workspace/workspace/src/types.ts)
 
@@ -16,7 +16,7 @@ Source: [`packages/workspace/workspace/src/types.ts`](../../packages/workspace/w
 type WorkspaceId = Branded<'WorkspaceId'>
 ```
 
-`WorkspaceId` is a [branded id](core.md#branded-ids). Path identity is separate: `realpathNormalize` (`fs.realpath`; trailing slashes, `..`, and symlinks resolved) is the one uniqueness canon — workspace paths are stored canonicalized, uniqueness is string equality of canonical paths (a symlink to an owned directory collides), and attach-time session cwd checks go through the same canon.
+`WorkspaceId` is a [branded id](core.md#branded-ids). `realpathNormalize` resolves symlinks and relative segments to canonical absolute directory paths. Primary paths remain unique across Workspaces, while secondary directories may be shared; duplicate canonical directories within one Workspace reject.
 
 ## The workspace entity
 
@@ -24,21 +24,18 @@ Consumers see only the `Workspace` interface; the implementation stays package-p
 
 ```ts type-equiv
 /**
- * One workspace: a stable id over an existing directory, a display title, and
- * an ordered candidate account of sessions. Membership requires both an id in
- * that account and a session header whose canonical cwd equals the workspace
- * path. Consumers only see this interface; the implementation stays private.
+ * 一个具有稳定标识、主要目录、附加目录、名称与有序 Session 归属的 Workspace。
+ * 目录变更或目录失效不会改变已有 Session 归属。
  */
 interface Workspace {
   /** Stable record id (generated uuid). */
   readonly id: WorkspaceId
 
-  /**
-   * Canonical directory path: the `fs.realpath` of the path given at create
-   * time (trailing slashes, `..`, and symlinks all resolved). Never rewritten
-   * afterwards, even when the directory disappears (see {@link status}).
-   */
+  /** 明确的规范主要目录；仅显式配置更新时替换，目录失效不自动替换。 */
   readonly path: string
+
+  /** 已保存的附加规范目录，不影响已关联 Session 的归属。 */
+  readonly additionalDirectories: readonly string[]
 
   /** Display title. Defaults to the final path segment, or a filesystem root's own spelling; duplicates are allowed. */
   readonly title: string
@@ -49,14 +46,7 @@ interface Workspace {
   /** ISO-8601 instant of the last durable mutation (create counts as one). */
   readonly updatedAt: string
 
-  /**
-   * Header-validated sessions in manually owned order: a new session is
-   * prepended at attach, explicit reordering goes through
-   * `insertSessionBefore`, and activity never reorders. The durable candidate
-   * account is filtered synchronously: missing headers, invalid cwd values,
-   * and canonical cwd mismatches are never returned. A subsequent workspace
-   * mutation prunes those filtered candidates durably.
-   */
+  /** 持久化的 Session 归属，新增时置前，活动或目录变更不重排。 */
   readonly sessionIds: readonly SessionId[]
 
   /**
@@ -67,39 +57,24 @@ interface Workspace {
   setTitle(title: string): Promise<void>
 
   /**
-   * Prepend a session to this workspace's candidate account. An already
-   * accounted id resolves without writing, aside from the durable
-   * filtered-candidate prune every accepted mutation performs. A new id's
-   * live or persisted
-   * header cwd must resolve to an existing directory equal to {@link path};
-   * unknown ids, missing or invalid cwd values, and mismatches reject without
-   * writing.
-   * @param sessionId - The session to record.
-   * @returns resolution after durability.
+   * 关联一个已保存或正在运行的 Session，其他 Workspace 已占用时拒绝。
+   * @param sessionId - 要关联的 Session。
+   * @returns 持久化完成通知；已关联的请求不重复写入。
    */
   attachSession(sessionId: SessionId): Promise<void>
 
   /**
-   * Move an accounted session within the manual order, DOM-insertBefore-like:
-   * with an anchor the session lands before it, without one it appends to the
-   * end. Only the moved id changes position. A session or anchor absent from
-   * the account rejects without writing; a move to the current position
-   * resolves without writing, aside from the durable filtered-candidate
-   * prune every accepted mutation performs; decided on the domain write
-   * chain.
-   * @param sessionId - The accounted session to move.
-   * @param beforeSessionId - Accounted anchor to insert before; omitted appends.
-   * @returns resolution after durability.
+   * 移动已关联 Session，有锚点时插入其前，无锚点时移至末尾。
+   * @param sessionId - 已关联 Session。
+   * @param beforeSessionId - 已关联锚点；省略时追加。
+   * @returns 持久化完成通知；未知 Session 或锚点拒绝，原位移动不写入。
    */
   insertSessionBefore(sessionId: SessionId, beforeSessionId?: SessionId): Promise<void>
 
   /**
-   * Remove a session from this workspace's account. Idempotent: an id not on
-   * the account resolves without writing, aside from the durable
-   * filtered-candidate prune every accepted mutation performs; decided on
-   * the domain write chain like attach. Never touches the session's own stored log.
-   * @param sessionId - The session to remove.
-   * @returns resolution after durability.
+   * 移除关联的 Session，未关联的标识不写入，不修改 Session 日志。
+   * @param sessionId - 要移除的 Session。
+   * @returns 持久化完成通知。
    */
   detachSession(sessionId: SessionId): Promise<void>
 
@@ -113,13 +88,13 @@ interface Workspace {
 }
 ```
 
-Ownership truth is the record's ordered `sessionIds`, never derived from session cwd — but membership requires both: an id on the account and a header whose canonical cwd equals the workspace path, so one session structurally belongs to at most one workspace. Failed writes reject (`insertSessionBefore` account errors as `WorkspaceMoveInvalidError`, storage failures as plain errors); every accepted mutation stamps `updatedAt` and durably prunes candidates that no longer pass the membership check.
+The ordered `sessionIds` record determines ownership independently of current directory configuration or availability. Attaching verifies Session existence and rejects an id already owned by another Workspace, serialized with registry mutations. Existing ownership and manual order survive directory changes and missing headers. Nonempty mutations stamp `updatedAt`; idempotent operations do not rewrite data.
 
 ## The registry: `ctx.workspaceRegistry`
 
-`WorkspaceRegistry` ([signatures](#ctxworkspaceregistry--workspaceregistry)) owns registration and resolution. `create(path, title?)` requires a fully qualified path, canonicalizes it, rejects a nonexistent path (the original `ENOENT`) or a non-directory, returns the existing entity unchanged when the canonical path is already owned, and otherwise creates a record with `title ?? defaultWorkspaceTitle(path)` prepended to the durable registry order (different canonical paths may share a display title, and a path with no final segment uses its root spelling). `get(id)` and the ordered `list()` are synchronous cache reads; `resolveByPath(path)` applies the same fully qualified realpath canon without creating. `delete(id)` removes only the registration, order entry, and session account — the directory, user files, live sessions, and persisted logs are never touched, so those sessions become Ungrouped ([reference](../../packages/workspace/workspace/README.md)); unknown ids return `false`. Create and delete persist a pending-mutation marker before their two writes (record + order) can diverge; startup resolves exactly the marked mutation — by deleting the marked table row, which completes an interrupted delete and rolls back an interrupted create (the registration is re-creatable, so rollback is the safe direction) — and an unmarked order/table mismatch fails loud as corruption.
+`WorkspaceRegistry` ([signatures](#ctxworkspaceregistry--workspaceregistry)) owns registration and resolution. `create({ path, title?, additionalDirectories? })` accepts one explicit primary and secondary directories, while the path-only overload remains supported. New directories must exist and are canonicalized. `update(id, { path, title, additionalDirectories })` saves the complete configuration atomically; unchanged saved missing directories remain retainable. `get(id)` and ordered `list()` read cached records, and `resolveByPath(path)` resolves primary paths only. `delete(id)` removes registration and ownership without touching files or Session logs. Create/delete pending markers preserve interrupted-write recovery; unexplained order/table divergence rejects.
 
-Sessions get their cwd at create time from whoever creates them, not from this registry — the API gateway resolves a new session's cwd from the chosen workspace's `path` (falling back to an explicit or default cwd), creates the session so the cwd lands in its immutable [`SessionHeader`](persistence.md#sessionheader--metadata-beside-the-log), then calls `attachSession`, which re-validates that stored header cwd against the workspace path. On the first successful start, the registry bootstraps history from persisted headers alone (`id`, `cwd`, `createdAt` — never event bodies), grouping sessions with a valid canonical cwd into per-directory workspaces, newest first; the initialized marker is written last so an interrupted bootstrap resumes safely. The bootstrap is one-time: cwd-less legacy sessions stay Ungrouped, and sessions created afterwards join a workspace only through `attachSession`.
+New Sessions capture the selected Workspace primary and secondary directories before execution; existing Sessions retain their immutable working directory and captured access roots. Attachment verifies existence and exclusive ownership. First startup bootstraps history from persisted headers only, grouping canonical cwd values once; initialized registries never rerun that grouping. Workspace domain version 3 explicitly accepts version 2 records with an empty secondary-directory list, preserving identities, timestamps, manual order, archives and pins.
 
 ## Default Workspace initialization
 
@@ -339,6 +314,13 @@ Host service backing the generated `ctx.remote.workspace` namespace.
 @Remote('create') create(request: WorkspaceCreateRequest): Promise<WorkspaceCreateValue>
 
 /**
+ * 一次保存完整 Workspace 配置。
+ * @param request - 标识、名称与完整目录选择。
+ * @returns 更新后的完整投影。
+ */
+@Remote('update') update(request: WorkspaceUpdateRequest): Promise<WorkspaceValue>
+
+/**
  * Initialize or reuse the default Workspace during first-use startup. The
  * directory name is fixed, so the Host never renames or relocates an
  * existing default; its initial title is that same name, which browser
@@ -481,17 +463,21 @@ Durable workspace registry. Startup waits for `sessionPersistence`, builds one c
 
 ```ts cordis-catalog
 /**
- * Create or reuse a workspace for an existing directory. The fully qualified
- * path is canonicalized through `fs.realpath`; a relative, nonexistent, or
- * non-directory path rejects. Repeated calls for the same canonical path
- * return the existing entity without changing its title.
- * A newly created workspace is prepended to the durable registry order.
- * Different canonical paths may share a display title.
- * @param path - Existing directory to own, in a fully qualified path spelling.
- * @param title - Display title used only when a new record is created.
- * @returns the existing or newly durable workspace.
+ * 注册已存在的主要目录与附加目录；新记录置于注册表显示顺序首位。
+ * 旧路径调用幂等复用，显式配置与已有主要目录配置不同时拒绝。
+ * @param input - 主要目录或包含名称与附加目录的配置。
+ * @param title - 旧路径调用创建时使用的名称。
+ * @returns 新建或既有 Workspace。
  */
-async create(path: string, title?: string): Promise<Workspace>
+async create( input: string | { path: string; title?: string; additionalDirectories?: readonly string[] }, title?: string, ): Promise<Workspace>
+
+/**
+ * 一次保存主要目录、名称与附加目录；既有缺失目录可以原样保留。
+ * @param id - Workspace 标识。
+ * @param configuration - 完整配置，主要目录必须明确提供。
+ * @returns 更新后的 Workspace；不存在的标识拒绝。
+ */
+update(id: WorkspaceId, configuration: { path: string; title: string; additionalDirectories: readonly string[] }): Promise<Workspace>
 
 /**
  * Initialize the default Workspace only while both the registry and Session
@@ -515,10 +501,8 @@ initializeDefault(resolveDirectory: () => Promise<string>): Promise<Workspace | 
 get(id: WorkspaceId): Workspace | undefined
 
 /**
- * Synchronous workspace projection in durable registry order. Every
- * entity's `sessionIds` getter is already filtered by the startup/live
- * canonical-cwd header index; this method performs no persistence reads.
- * @returns a fresh ordered array of workspace entities.
+ * 按持久化注册表顺序返回 Workspace，保留 Session 账本，不读取持久层。
+ * @returns 独立的有序实体数组。
  */
 list(): Workspace[]
 

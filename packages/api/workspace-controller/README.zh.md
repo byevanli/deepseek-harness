@@ -6,6 +6,10 @@ kind: "package-reference"
 
 [English](README.md) | 中文
 
+`workspace.create({ path, title?, additionalDirectories? })` 接受原有仅路径请求；`workspace.update({ workspaceId, path, title, additionalDirectories })` 与 `ctx.workspaces.update(...)` 一次原子保存完整配置。所有投影包含 `additionalDirectories`。名称去除两端空白后必须非空且唯一。主要目录必须明确选择，新增目录必须存在，未改变的已保存缺失目录可以保留。保存失败保留原记录与 Session 顺序。
+
+显式创建配置复用已有主要目录时，名称与附加目录必须与已保存配置一致，否则以 `workspace/configuration-conflict` 拒绝；仅路径请求不修改已有 Workspace。
+
 ## 概述
 
 `@deepseek-ai/dsh-api-workspace-controller` 拥有 Host 的 `ctx.workspaceController` 服务和生成的 Client `ctx.remote.workspace` namespace。它的 Remote 方法负责创建、重命名、移除和重排 Workspace，在 Workspace 内重排 Session，归档与取消归档 Session，以及跟随完整的 Workspace 投影。当 Client 必须修改或跟随 Workspace 导航时，请通过 API 网关使用它。本包同时拥有 `ctx.directoryPickerController` 与生成的 `ctx.remote.directoryPicker` namespace，因为它承载的选目录 seam 是抽象的，自身从不作为 Loader entry。

@@ -11,6 +11,7 @@ import type {
   WorkspaceArchiveSessionRequest,
   WorkspaceArchiveValue,
   WorkspaceCreateRequest,
+  WorkspaceUpdateRequest,
   WorkspaceCreateValue,
   WorkspaceDeleteRequest,
   WorkspaceDeleteValue,
@@ -53,6 +54,7 @@ export function workspace(id: string, overrides: Partial<WorkspaceView> = {}): W
   return {
     workspaceId: id as WorkspaceId,
     path: `/work/${id}`,
+    additionalDirectories: [],
     title: id,
     sessionIds: [],
     createdAt: '2026-01-01T00:00:00.000Z',
@@ -93,7 +95,10 @@ export const workspaceWorld: RemoteTable = {
   unary: {
     'workspace/initializeDefault': (): RemoteResult<WorkspaceValue> => ok({ workspace: workspace('default') }),
     'workspace/create': (request: WorkspaceCreateRequest): RemoteResult<WorkspaceCreateValue> => ok({
-      workspace: workspace('created', { path: request.path }), created: true,
+      workspace: workspace('created', { path: request.path, ...(request.title === undefined ? {} : { title: request.title }), additionalDirectories: request.additionalDirectories ?? [] }), created: true,
+    }),
+    'workspace/update': (request: WorkspaceUpdateRequest): RemoteResult<WorkspaceValue> => ok({
+      workspace: workspace(String(request.workspaceId), request),
     }),
     'workspace/rename': (request: WorkspaceRenameRequest): RemoteResult<WorkspaceValue> => ok({
       workspace: workspace(String(request.workspaceId), { title: request.title }),

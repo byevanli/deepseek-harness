@@ -2,7 +2,7 @@
 
 [English](workspace.md) | 中文
 
-工作区（workspace）是用户工作目录的持久记录：一个建立在规范路径之上的稳定 id、一个显示标题，以及归属于它的会话的有序账本。该子系统是单个包（package）（[dsh-workspace](../../packages/workspace/workspace)，`ctx.workspaceRegistry`）——一项宿主侧可选能力，不属于 agent loop（智能体循环）主干，并且对模型不可见（没有工具、没有提示词文本、没有会话事件）。它通过[存储领域数据形式](storage.zh.md)存储自己的记录，并对照 [`SessionHeader.cwd`](persistence.zh.md#sessionheader--metadata-beside-the-log) 校验会话成员资格，因此 `storageDomain` 与 `sessionPersistence` 是必需的启动依赖：持久化这一依赖不可用时，插件保持 pending，而不是把这种不可用误当作空历史。设计记录：[领域 KV 存储 Agent Note（agent 决策记录）](../../.agents/notes/proposed/architecture/2026-07-24-domain-kv-storage-and-workspace.zh.md)；引导与 GUI 顺序：[Workspace UI 产品流程 Agent Note](../../.agents/notes/archived/feature/2026-07-25-workspace-ui-product-flow.md)。
+Workspace 保存稳定标识、显示标题、明确的主要目录、附加目录与有序 Session 归属。[工作区包](../../packages/workspace/workspace) 的 `ctx.workspaceRegistry` 通过[存储领域数据形式](storage.zh.md)保存这些记录。注册表不提供模型工具或提示词。`storageDomain` 与 `sessionPersistence` 是必需的启动依赖，因此不会把不可用的持久化误当作空历史；目录变更或缺失不会移除已有归属。
 
 源码：[`packages/workspace/workspace/src/types.ts`](../../packages/workspace/workspace/src/types.ts)
 
@@ -16,7 +16,7 @@
 type WorkspaceId = Branded<'WorkspaceId'>
 ```
 
-`WorkspaceId` 是[品牌化 id](core.zh.md#branded-ids)。路径标识与之分离：`realpathNormalize`（`fs.realpath`；尾部斜杠、`..` 与符号链接全部解析）是唯一的一套唯一性规范——工作区路径以规范化形式存储，唯一性即规范路径的字符串相等（指向已被拥有目录的符号链接会与之冲突），attach 时的会话 cwd 检查也走同一套规范。
+`WorkspaceId` 是[品牌化 id](core.zh.md#branded-ids)。`realpathNormalize` 将符号链接与相对路径片段解析为规范的绝对目录路径。主要目录在 Workspace 之间唯一，附加目录允许共享；同一 Workspace 内重复的规范目录会拒绝。
 
 ## 工作区实体
 
@@ -24,21 +24,18 @@ type WorkspaceId = Branded<'WorkspaceId'>
 
 ```ts type-equiv
 /**
- * One workspace: a stable id over an existing directory, a display title, and
- * an ordered candidate account of sessions. Membership requires both an id in
- * that account and a session header whose canonical cwd equals the workspace
- * path. Consumers only see this interface; the implementation stays private.
+ * 一个具有稳定标识、主要目录、附加目录、名称与有序 Session 归属的 Workspace。
+ * 目录变更或目录失效不会改变已有 Session 归属。
  */
 interface Workspace {
   /** Stable record id (generated uuid). */
   readonly id: WorkspaceId
 
-  /**
-   * Canonical directory path: the `fs.realpath` of the path given at create
-   * time (trailing slashes, `..`, and symlinks all resolved). Never rewritten
-   * afterwards, even when the directory disappears (see {@link status}).
-   */
+  /** 明确的规范主要目录；仅显式配置更新时替换，目录失效不自动替换。 */
   readonly path: string
+
+  /** 已保存的附加规范目录，不影响已关联 Session 的归属。 */
+  readonly additionalDirectories: readonly string[]
 
   /** Display title. Defaults to the final path segment, or a filesystem root's own spelling; duplicates are allowed. */
   readonly title: string
@@ -49,14 +46,7 @@ interface Workspace {
   /** ISO-8601 instant of the last durable mutation (create counts as one). */
   readonly updatedAt: string
 
-  /**
-   * Header-validated sessions in manually owned order: a new session is
-   * prepended at attach, explicit reordering goes through
-   * `insertSessionBefore`, and activity never reorders. The durable candidate
-   * account is filtered synchronously: missing headers, invalid cwd values,
-   * and canonical cwd mismatches are never returned. A subsequent workspace
-   * mutation prunes those filtered candidates durably.
-   */
+  /** 持久化的 Session 归属，新增时置前，活动或目录变更不重排。 */
   readonly sessionIds: readonly SessionId[]
 
   /**
@@ -67,39 +57,24 @@ interface Workspace {
   setTitle(title: string): Promise<void>
 
   /**
-   * Prepend a session to this workspace's candidate account. An already
-   * accounted id resolves without writing, aside from the durable
-   * filtered-candidate prune every accepted mutation performs. A new id's
-   * live or persisted
-   * header cwd must resolve to an existing directory equal to {@link path};
-   * unknown ids, missing or invalid cwd values, and mismatches reject without
-   * writing.
-   * @param sessionId - The session to record.
-   * @returns resolution after durability.
+   * 关联一个已保存或正在运行的 Session，其他 Workspace 已占用时拒绝。
+   * @param sessionId - 要关联的 Session。
+   * @returns 持久化完成通知；已关联的请求不重复写入。
    */
   attachSession(sessionId: SessionId): Promise<void>
 
   /**
-   * Move an accounted session within the manual order, DOM-insertBefore-like:
-   * with an anchor the session lands before it, without one it appends to the
-   * end. Only the moved id changes position. A session or anchor absent from
-   * the account rejects without writing; a move to the current position
-   * resolves without writing, aside from the durable filtered-candidate
-   * prune every accepted mutation performs; decided on the domain write
-   * chain.
-   * @param sessionId - The accounted session to move.
-   * @param beforeSessionId - Accounted anchor to insert before; omitted appends.
-   * @returns resolution after durability.
+   * 移动已关联 Session，有锚点时插入其前，无锚点时移至末尾。
+   * @param sessionId - 已关联 Session。
+   * @param beforeSessionId - 已关联锚点；省略时追加。
+   * @returns 持久化完成通知；未知 Session 或锚点拒绝，原位移动不写入。
    */
   insertSessionBefore(sessionId: SessionId, beforeSessionId?: SessionId): Promise<void>
 
   /**
-   * Remove a session from this workspace's account. Idempotent: an id not on
-   * the account resolves without writing, aside from the durable
-   * filtered-candidate prune every accepted mutation performs; decided on
-   * the domain write chain like attach. Never touches the session's own stored log.
-   * @param sessionId - The session to remove.
-   * @returns resolution after durability.
+   * 移除关联的 Session，未关联的标识不写入，不修改 Session 日志。
+   * @param sessionId - 要移除的 Session。
+   * @returns 持久化完成通知。
    */
   detachSession(sessionId: SessionId): Promise<void>
 
@@ -113,13 +88,13 @@ interface Workspace {
 }
 ```
 
-所有权的真源是记录中有序的 `sessionIds`，绝不从会话 cwd 派生——但成员资格要求两者同时成立：账本上有其 id，且 header 的规范 cwd 等于工作区路径，因此一个会话在结构上至多属于一个工作区。失败的写入会拒绝（`insertSessionBefore` 的账本错误以 `WorkspaceMoveInvalidError` 拒绝，存储失败以普通错误拒绝）；每次被接受的变更都盖上 `updatedAt` 时间戳，并持久修剪不再通过成员资格检查的候选项。
+有序 `sessionIds` 记录决定归属，与当前目录配置或可用性无关。关联操作检查 Session 存在且没有其他 Workspace 占用，并与注册表变更串行执行。目录变更或缺失的 Session 头不会改变已有归属与手动顺序。有效变更更新时间戳 `updatedAt`，幂等操作不重复写入。
 
 ## 注册表：`ctx.workspaceRegistry`
 
-`WorkspaceRegistry`（[签名](#ctxworkspaceregistry--workspaceregistry)）拥有注册与解析。`create(path, title?)` 要求完全限定路径并将其规范化，拒绝不存在的路径（原样传出原始 `ENOENT`）或非目录；当规范路径已被拥有时原样返回既有实体；否则创建一条标题为 `title ?? defaultWorkspaceTitle(path)` 的记录并前插到持久的注册表顺序中（不同规范路径可以共享同一显示标题，没有最终路径段时使用根路径拼写）。`get(id)` 与有序的 `list()` 是同步缓存读取；`resolveByPath(path)` 应用同一套完全限定 realpath 规范但不创建。`delete(id)` 只移除注册记录、顺序条目和会话账本——目录、用户文件、实时会话和已持久化日志一概不动，因此这些会话变为 Ungrouped（[参考](../../packages/workspace/workspace/README.zh.md)）；未知 id 返回 `false`。create 与 delete 会在其两次写入（记录 + 顺序）可能分叉之前先持久写入一个待定变更标记；启动时恰好解决被标记的那次变更——通过删除被标记的表行：这会补完被中断的 delete，并回滚被中断的 create（注册可以重建，因此回滚是安全方向）——而没有标记的顺序/表不一致则作为损坏大声失败。
+`WorkspaceRegistry`（[签名](#ctxworkspaceregistry--workspaceregistry)）管理注册与解析。`create({ path, title?, additionalDirectories? })` 接受一个明确的主要目录和附加目录，也支持原有路径参数。新增目录必须存在且经过规范化。`update(id, { path, title, additionalDirectories })` 原子保存完整配置，未改变的已保存缺失目录可以保留。`get(id)` 与有序 `list()` 读取缓存，`resolveByPath(path)` 只查找主要目录。`delete(id)` 移除注册与归属，不触及文件或 Session 日志。创建与删除的 pending 标记维持中断写入恢复；无法解释的顺序与表记录不一致会拒绝。
 
-会话的 cwd 在创建时由创建者赋予，而不是由本注册表赋予——API 网关从所选工作区的 `path` 解析新会话的 cwd（回退到显式或默认 cwd），先创建会话使 cwd 落入其不可变的 [`SessionHeader`](persistence.zh.md#sessionheader--metadata-beside-the-log)，再调用 `attachSession`，后者会把已存储的 header cwd 与工作区路径重新校验一遍。首次成功启动时，注册表仅凭已持久化的 header（`id`、`cwd`、`createdAt`——绝不读事件正文）引导历史：把规范 cwd 有效的会话按目录分组为工作区，最新的排在最前；「已初始化」标记最后写入，因此被中断的引导可以安全续跑。引导只发生这一次：没有 cwd 的历史遗留会话保持 Ungrouped，此后创建的会话只能通过 `attachSession` 加入工作区。
+新 Session 在执行前捕获所选 Workspace 的主要目录和附加目录；已有 Session 保留其不可变工作目录和捕获的访问目录。关联操作验证存在性与独占归属。首次启动只从持久化头部引导历史，按规范 cwd 分组一次；已初始化注册表不会重新分组。Workspace 领域版本 3 显式接受版本 2 记录并补充空附加目录列表，保留标识、时间戳、手动顺序、归档与置顶。
 
 ## 默认工作区初始化
 
@@ -339,6 +314,13 @@ Host service backing the generated `ctx.remote.workspace` namespace.
 @Remote('create') create(request: WorkspaceCreateRequest): Promise<WorkspaceCreateValue>
 
 /**
+ * 一次保存完整 Workspace 配置。
+ * @param request - 标识、名称与完整目录选择。
+ * @returns 更新后的完整投影。
+ */
+@Remote('update') update(request: WorkspaceUpdateRequest): Promise<WorkspaceValue>
+
+/**
  * Initialize or reuse the default Workspace during first-use startup. The
  * directory name is fixed, so the Host never renames or relocates an
  * existing default; its initial title is that same name, which browser
@@ -481,17 +463,21 @@ Durable workspace registry. Startup waits for `sessionPersistence`, builds one c
 
 ```ts cordis-catalog
 /**
- * Create or reuse a workspace for an existing directory. The fully qualified
- * path is canonicalized through `fs.realpath`; a relative, nonexistent, or
- * non-directory path rejects. Repeated calls for the same canonical path
- * return the existing entity without changing its title.
- * A newly created workspace is prepended to the durable registry order.
- * Different canonical paths may share a display title.
- * @param path - Existing directory to own, in a fully qualified path spelling.
- * @param title - Display title used only when a new record is created.
- * @returns the existing or newly durable workspace.
+ * 注册已存在的主要目录与附加目录；新记录置于注册表显示顺序首位。
+ * 旧路径调用幂等复用，显式配置与已有主要目录配置不同时拒绝。
+ * @param input - 主要目录或包含名称与附加目录的配置。
+ * @param title - 旧路径调用创建时使用的名称。
+ * @returns 新建或既有 Workspace。
  */
-async create(path: string, title?: string): Promise<Workspace>
+async create( input: string | { path: string; title?: string; additionalDirectories?: readonly string[] }, title?: string, ): Promise<Workspace>
+
+/**
+ * 一次保存主要目录、名称与附加目录；既有缺失目录可以原样保留。
+ * @param id - Workspace 标识。
+ * @param configuration - 完整配置，主要目录必须明确提供。
+ * @returns 更新后的 Workspace；不存在的标识拒绝。
+ */
+update(id: WorkspaceId, configuration: { path: string; title: string; additionalDirectories: readonly string[] }): Promise<Workspace>
 
 /**
  * Initialize the default Workspace only while both the registry and Session
@@ -515,10 +501,8 @@ initializeDefault(resolveDirectory: () => Promise<string>): Promise<Workspace | 
 get(id: WorkspaceId): Workspace | undefined
 
 /**
- * Synchronous workspace projection in durable registry order. Every
- * entity's `sessionIds` getter is already filtered by the startup/live
- * canonical-cwd header index; this method performs no persistence reads.
- * @returns a fresh ordered array of workspace entities.
+ * 按持久化注册表顺序返回 Workspace，保留 Session 账本，不读取持久层。
+ * @returns 独立的有序实体数组。
  */
 list(): Workspace[]
 

@@ -11,6 +11,7 @@ import type {
   WorkspaceArchiveSessionRequest,
   WorkspaceArchiveValue,
   WorkspaceCreateRequest,
+  WorkspaceUpdateRequest,
   WorkspaceCreateValue,
   WorkspaceDeleteRequest,
   WorkspaceDeleteValue,
@@ -85,6 +86,16 @@ export class WorkspaceController extends TypertRemoteService {
   @Remote('create')
   create(request: WorkspaceCreateRequest): Promise<WorkspaceCreateValue> {
     return this.commands.create(request)
+  }
+
+  /**
+   * 一次保存完整 Workspace 配置。
+   * @param request - 标识、名称与完整目录选择。
+   * @returns 更新后的完整投影。
+   */
+  @Remote('update')
+  update(request: WorkspaceUpdateRequest): Promise<WorkspaceValue> {
+    return this.commands.update(request)
   }
 
   /**

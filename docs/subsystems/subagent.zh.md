@@ -54,8 +54,8 @@ interface SubagentStartRequest {
   readonly prompt: ContentBlock[]
   /**
    * The spawning agent. In-process providers derive workspace, lineage, and
-   * delegation depth from its durable session state. ACP reads only its cwd,
-   * and only when no deployment `cwd` override is configured.
+   * delegation depth from its durable session state.
+   * 外部运行时只能传递单目录，父会话含附加目录时拒绝委派。
    */
   readonly parent: Agent
   /**

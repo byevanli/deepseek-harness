@@ -42,6 +42,8 @@ export interface SandboxExecutionPolicy {
   mode: SandboxMode
   /** Absolute root directory `workspace-write` may write under. */
   workspaceRoot: string
+  /** 会话捕获的附加绝对目录；省略时只使用主要目录。 */
+  additionalDirectories?: readonly string[]
   /**
    * Opaque identity of the calling session (the branded `dsh-session`
    * SessionId). Backends key per-session state off it (e.g. windows-acl gives

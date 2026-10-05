@@ -1630,6 +1630,9 @@ importers:
         specifier: ^4.4.3
         version: 4.4.3
     devDependencies:
+      '@deepseek-ai/dsh-session-query':
+        specifier: workspace:*
+        version: link:../../session-query/session-query
       '@deepseek-ai/cordis':
         specifier: workspace:~
         version: link:../../../vendor/cordis
@@ -5514,6 +5517,9 @@ importers:
 
   packages/client/ui-sidebar-files:
     devDependencies:
+      '@deepseek-ai/dsh-sandbox-policy':
+        specifier: workspace:*
+        version: link:../../sandbox/sandbox-policy
       '@deepseek-ai/cordis':
         specifier: workspace:~
         version: link:../../../vendor/cordis
@@ -6241,6 +6247,9 @@ importers:
 
   packages/client/ui-workspace:
     devDependencies:
+      '@deepseek-ai/dsh-sandbox-policy':
+        specifier: workspace:*
+        version: link:../../sandbox/sandbox-policy
       '@deepseek-ai/cordis':
         specifier: workspace:~
         version: link:../../../vendor/cordis

@@ -19,6 +19,8 @@ export interface WorkspaceView {
   readonly workspaceId: WorkspaceId
   /** Canonical host directory path. */
   readonly path: string
+  /** 附加规范目录，顺序与保存配置一致。 */
+  readonly additionalDirectories: readonly string[]
   /** User-visible title. */
   readonly title: string
   /** Sessions accounted to this Workspace in manual order. */
@@ -31,6 +33,8 @@ export interface WorkspaceView {
 
 declare module '@deepseek-ai/dsh-typert-protocol' {
   interface RemoteErrorDetailsMap {
+    /** 显式创建草稿与已拥有主要目录的配置冲突。 */
+    'workspace/configuration-conflict': { readonly workspaceId: WorkspaceId }
     /** The requested directory cannot back a Workspace. */
     'workspace/invalid-path': { readonly path: string }
     /** Another Workspace already uses the requested name. */
@@ -64,6 +68,16 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
 /** Existing directory requested for Workspace adoption. */
 export interface WorkspaceCreateRequest {
   readonly path: string
+  readonly title?: string
+  readonly additionalDirectories?: readonly string[]
+}
+
+/** 显式提供主要目录的一次性完整配置保存。 */
+export interface WorkspaceUpdateRequest {
+  readonly workspaceId: WorkspaceId
+  readonly path: string
+  readonly title: string
+  readonly additionalDirectories: readonly string[]
 }
 
 /** Created or previously registered Workspace. */

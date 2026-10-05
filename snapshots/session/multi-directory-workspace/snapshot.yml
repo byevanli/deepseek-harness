@@ -1,0 +1,13 @@
+version: 1
+scenario: multi-directory-workspace
+profile: headless
+composition: multi-directory-workspace
+recording: authored
+header:
+  class: multi-directory-workspace
+  pin: true
+platform: posix
+permission: workspace-write
+workspace:
+  final: true
+  parent: outside-temp

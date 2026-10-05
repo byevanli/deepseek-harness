@@ -6,6 +6,7 @@
  * @module @deepseek-ai/dsh-subagent-claude-code
  */
 
+import { assertSingleDirectoryParent } from '@deepseek-ai/dsh-subagent'
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
@@ -81,6 +82,7 @@ class ClaudeCodeProvider implements SubagentProvider {
   ) {}
 
   async start(request: ResolvedSubagentStartRequest) {
+    assertSingleDirectoryParent(request.parent, this.ctx.get('sandboxPolicy'))
     const parentCwd = request.parent.session.header.cwd
     if (parentCwd === undefined) {
       throw new Error(

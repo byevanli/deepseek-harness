@@ -16,7 +16,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import koffi from 'koffi'
 
 import { buildExplicitAccess, grantWrite, lockFilePath, revokeWrite, withPathLock } from '../src/acl.ts'
-import { AclSandbox } from '../src/index.ts'
+import { AclSandbox, workspaceWriteSid } from '../src/index.ts'
 import { createRestrictedToken, makeWellKnownSid } from '../src/token.ts'
 import { allocOverlapped, allocPtrSlot, decodePtr, isInvalidHandle, isNullPtr, win32 } from '../src/ffi.ts'
 import type { NativePtr, Win32Bindings } from '../src/ffi.ts'
@@ -362,6 +362,34 @@ describe.skipIf(!isWin32)('ACL editing', () => {
       if (!isNullPtr(lowSid)) api.localFree(lowSid)
       if (!isNullPtr(world)) api.localFree(world)
     }
+  })
+
+  it('additional directory capabilities do not remain usable by single-root or read-only executions', async () => {
+    const primary = scratch()
+    const secondary = scratch()
+    const unrelated = scratch()
+    const multi = new AclSandbox({
+      writableDirs: [primary], writeSid: workspaceWriteSid(primary),
+      additionalWriteGrants: [{ path: secondary, writeSid: workspaceWriteSid(secondary) }],
+      tempDir: null, mode: 'workspace-write',
+    })
+    const single = new AclSandbox({ writableDirs: [primary], writeSid: workspaceWriteSid(primary), tempDir: null, mode: 'workspace-write' })
+    const readonly = new AclSandbox({ writableDirs: [], tempDir: null, mode: 'read-only' })
+    const write = async (sandbox: AclSandbox, path: string) => {
+      const child = sandbox.spawn({ command: process.execPath, args: ['-e', 'try { require("node:fs").writeFileSync(process.argv[1], "ok") } catch { process.exitCode = 7 }', path] })
+      return (await child.wait()).exitCode
+    }
+    try {
+      await multi.init()
+      expect(await write(multi, join(primary, 'primary.txt'))).toBe(0)
+      expect(await write(multi, join(secondary, 'secondary.txt'))).toBe(0)
+      expect(await write(multi, join(unrelated, 'denied.txt'))).toBe(7)
+      await single.init()
+      expect(await write(single, join(secondary, 'single-denied.txt'))).toBe(7)
+      await readonly.init()
+      expect(await write(readonly, join(primary, 'readonly-primary.txt'))).toBe(7)
+      expect(await write(readonly, join(secondary, 'readonly-secondary.txt'))).toBe(7)
+    } finally { readonly.dispose(); single.dispose(); multi.dispose() }
   })
 
   it('interleaved sandbox instances: A.init → B.init → A.dispose → B.dispose leaves BOTH standing workspace ACEs (the per-workspace reuse cache)', async () => {

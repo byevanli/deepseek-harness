@@ -138,7 +138,9 @@ class SingleJsonUnit implements KvUnit {
   }
 
   private publish(): Promise<void> {
-    const write = writeAtomic(this.path, serialize(this.descriptor.name, this.state))
+    const write = Promise.resolve().then(() =>
+      writeAtomic(this.path, serialize(this.descriptor.name, { ...this.state, version: this.descriptor.version })))
+      .then(() => { this.state.version = this.descriptor.version })
     this.inFlight.add(write)
     // Swallow only on the tracking branch: the caller still awaits `write`
     // itself, so rejections stay observed exactly once.

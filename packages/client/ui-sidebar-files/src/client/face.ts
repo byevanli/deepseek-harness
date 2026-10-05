@@ -123,13 +123,15 @@ export interface FilesInjected {
    * @param tabId - the tab being drawn.
    * @param root - absolute path of the workspace root.
    * @param signal - the tab record's lifetime.
+   * @param additionalRoots - 会话固定的附加根目录。
    */
-  readonly start: (tabId: TabId, root: string, signal: AbortSignal) => void
+  readonly start: (tabId: TabId, root: string, signal: AbortSignal, additionalRoots?: readonly string[]) => void
   /**
    * List one directory into the store.
    * @param tabId - the tab being drawn.
    * @param path - absolute directory path.
    * @param signal - the tab record's lifetime.
+   * @param additionalRoots - 会话固定的附加根目录。
    */
   readonly load: (tabId: TabId, path: string, signal: AbortSignal) => void
   /**
@@ -139,6 +141,7 @@ export interface FilesInjected {
    * @param path - absolute directory path.
    * @param expanded - current expansion preferences, including descendants to restore.
    * @param signal - the tab record's lifetime.
+   * @param additionalRoots - 会话固定的附加根目录。
    */
   readonly toggle: (tabId: TabId, parentPath: string, path: string, expanded: readonly string[], signal: AbortSignal) => void
 }
@@ -159,7 +162,7 @@ export function filesFace(
   ): FilesInjected => {
     /** Per tab, per absolute path: the listing generation a settlement must match; the latest request wins. */
     const generations = new Map<TabId, Map<string, number>>()
-    const roots = new Map<TabId, DirectoryNode>()
+    const roots = new Map<TabId, readonly DirectoryNode[]>()
     const nextGeneration = (tabId: TabId, path: string): number => {
       const byPath = generations.get(tabId) ?? new Map<string, number>()
       generations.set(tabId, byPath)
@@ -181,31 +184,34 @@ export function filesFace(
       })
     }
     return {
-      refresh: (tabId) => { void roots.get(tabId)?.refreshTree() },
+      refresh: (tabId) => { for (const root of roots.get(tabId) ?? []) void root.refreshTree() },
       setAutoRefresh: (tabId, enabled) => {
         actions.autoRefresh(tabId, enabled)
-        roots.get(tabId)?.setAutomatic(enabled)
+        for (const root of roots.get(tabId) ?? []) root.setAutomatic(enabled)
       },
-      start(tabId, root, signal) {
-        actions.start(tabId, root)
+      start(tabId, root, signal, additionalRoots = []) {
+        actions.start(tabId, root, additionalRoots)
         signal.addEventListener('abort', () => {
-          void roots.get(tabId)?.close()
+          for (const node of roots.get(tabId) ?? []) void node.close()
           roots.delete(tabId)
           generations.delete(tabId)
           actions.forget(tabId)
         }, { once: true })
-        roots.set(tabId, new DirectoryNode(root,
+        roots.set(tabId, [root, ...additionalRoots].map(directory => new DirectoryNode(directory,
           (path, lifetime) => load(tabId, path, lifetime),
           (path, lifetime) => watch(sessionId, path, lifetime),
           (path, error) => {
             if (!signal.aborted) actions.failed(tabId, path, new RemoteError('gateway/internal', error instanceof Error ? error.message : String(error), {}))
           }, signal,
-        ).open())
+        ).open()))
       },
       load: (tabId, path, signal) => { void load(tabId, path, signal) },
       toggle(tabId, parentPath, path, expanded, signal) {
         if (signal.aborted) return
-        const root = roots.get(tabId)
+        const candidates = roots.get(tabId) ?? []
+        const root = candidates.find(node => node.find(parentPath) !== undefined)
+          ?? [...candidates].sort((left, right) => right.path.length - left.path.length)
+            .find(node => parentPath === node.path || parentPath.startsWith(`${node.path.replace(/[/\\]+$/, '')}/`))
         if (root === undefined) return
         const parent = root.find(parentPath)
         if (parent === undefined && !expanded.includes(parentPath)) return

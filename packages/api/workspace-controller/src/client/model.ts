@@ -9,6 +9,7 @@ import type {
   WorkspaceArchiveValue,
   WorkspaceBaseline,
   WorkspaceCreateRequest,
+  WorkspaceUpdateRequest,
   WorkspaceCreateValue,
   WorkspaceDeleteValue,
   WorkspaceInsertSessionBeforeRequest,
@@ -97,6 +98,17 @@ export class ClientWorkspaceModel implements WorkspaceFollowSink {
    */
   async create(input: WorkspaceCreateRequest): Promise<RemoteResult<WorkspaceCreateValue>> {
     const result = await this.remote.create(input)
+    if (result.ok) this.upsert(result.value.workspace)
+    return result
+  }
+
+  /**
+   * 保存完整配置并合并 Host 返回的记录。
+   * @param input - 完整配置。
+   * @returns Remote 结果。
+   */
+  async update(input: WorkspaceUpdateRequest): Promise<RemoteResult<WorkspaceValue>> {
+    const result = await this.remote.update(input)
     if (result.ok) this.upsert(result.value.workspace)
     return result
   }

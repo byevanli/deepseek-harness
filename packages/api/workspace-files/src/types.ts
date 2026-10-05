@@ -107,8 +107,11 @@ export interface WorkspaceDirectoryEntry {
 
 /** Direct children of one workspace directory. */
 export interface WorkspaceDirectoryListing {
+  /** 附加目录内列举时返回所选根目录；省略时以会话主要目录为根。 */
+  readonly root?: string
   /**
-   * The listed directory as a workspace path, relative to the workspace root
+   * 被列举目录相对于所属固定根目录的路径；附加根通过 root 返回。
+   * The listed directory as a workspace path, relative to its containing root
    * and empty for the root itself. A child's path is this value joined with
    * {@link WorkspaceDirectoryEntry.name} by `/`.
    */

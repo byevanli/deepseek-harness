@@ -44,7 +44,7 @@ interface StorageBackend {
 }
 ```
 
-A backend owns one medium (a file-tree root, a database file) and exposes optional operation groups; `kv` is the only shipped group. `KvFacet.open(descriptor)` opens one named unit — `KvUnitDescriptor` carries the name, current format version, optional compatible record versions, table names, and whether a global singleton slot exists — and returns a `KvUnit` with `loadAll`, `putRecord`, `deleteRecord`, `setGlobal`, and `close`. Unit and table names must match `UNIT_NAME_RE` (safe as a file name and as a SQL identifier segment); record keys are arbitrary strings that never reach file paths. A unit does not serialize concurrent writes — ordering belongs to the caller — but each single call is atomic on the medium and durable once resolved. A `single` medium stamped with a different version rejects `version-mismatch`; a `per-record` document stamped outside the accepted set reads as absent. A medium that cannot be parsed as the unit rejects `malformed-medium`. [`backend.ts`](../../packages/storage/storage/src/backend.ts) is the normative clause-by-clause contract, and the shared conformance suite in [`tests/contract.ts`](../../packages/storage/storage/tests/contract.ts) checks every clause against each backend. The [json backend](../../packages/storage/storage-json/README.md) republishes one whole human-readable file per unit atomically; the [sqlite backend](../../packages/storage/storage-sqlite/README.md) stores one document per row in one database for frequently updated data.
+A backend owns one medium (a file-tree root, a database file) and exposes optional operation groups; `kv` is the only shipped group. `KvFacet.open(descriptor)` opens one named unit — `KvUnitDescriptor` carries the name, current format version, optional compatible record versions, table names, and whether a global singleton slot exists — and returns a `KvUnit` with `loadAll`, `putRecord`, `deleteRecord`, `setGlobal`, and `close`. Unit and table names must match `UNIT_NAME_RE` (safe as a file name and as a SQL identifier segment); record keys are arbitrary strings that never reach file paths. A unit does not serialize concurrent writes — ordering belongs to the caller — but each single call is atomic on the medium and durable once resolved. A `single` medium accepts current or explicitly listed older versions and rejects every other stamp with `version-mismatch`; successful writes atomically stamp the current version with data, while reads and failed writes retain the old stamp; a `per-record` document stamped outside the accepted set reads as absent. A medium that cannot be parsed as the unit rejects `malformed-medium`. [`backend.ts`](../../packages/storage/storage/src/backend.ts) is the normative clause-by-clause contract, and the shared conformance suite in [`tests/contract.ts`](../../packages/storage/storage/tests/contract.ts) checks every clause against each backend. The [json backend](../../packages/storage/storage-json/README.md) republishes one whole human-readable file per unit atomically; the [sqlite backend](../../packages/storage/storage-sqlite/README.md) stores one document per row in one database for frequently updated data.
 
 ## Declaring a domain
 
@@ -66,12 +66,9 @@ interface DomainSpec {
    */
   readonly layout?: 'single' | 'per-record'
   /**
-   * Older domain versions whose stored records the current record schemas
-   * also accept (the declaring owner vouches for that, typically by
-   * declaring the fields older records lack as optional). `per-record` backends
-   * read documents stamped with a listed version instead of discarding them,
-   * and accept a legacy whole-unit file so stamped for the one-time
-   * bootstrap; writes always stamp {@link version}.
+   * 当前记录 schema 明确接受的旧版本；只有低于当前版本的列举值可读。
+   * 单文档和 SQLite 在成功写入数据时原子盖当前版本，读取不升级介质。
+   * per-record 保持逐文档兼容读取与当前版本写入。
    */
   readonly compatibleVersions?: readonly number[]
   /**

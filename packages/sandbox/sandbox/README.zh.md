@@ -25,6 +25,8 @@ kind: "package-reference"
 <a id="use-this-package"></a>
 ## 使用本包
 
+策略可在主要 `workspaceRoot` 之外携带 `additionalDirectories`。可写根目录仅在 workspace-write 下包含这些已捕获目录；只读模式仍返回空的可写列表。
+
 将此服务与一个后端和一个受限消费方组合，消费方运行的每条命令都会在你解析的策略下执行——你只看到隔离结果及其强制执行完整度，永远看不到 runner。
 
 ### 何时选择

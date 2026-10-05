@@ -50,7 +50,7 @@ describe('filesFace', () => {
     expect(stream.sessionId).toBe(SESSION)
     expect(stream.signal.aborted).toBe(false)
     expect(list).not.toHaveBeenCalled()
-    expect(snapshot()).toEqual({ root: ROOT, expanded: [ROOT], levels: {}, scrollTop: 0, autoRefresh: true })
+    expect(snapshot()).toEqual({ root: ROOT, additionalRoots: [], expanded: [ROOT], levels: {}, scrollTop: 0, autoRefresh: true })
     await stream.deliver('ready')
     expect(list).toHaveBeenCalledWith(SESSION, ROOT, stream.signal)
     expect(snapshot()!.levels[ROOT]).toEqual({ kind: 'loading' })
@@ -312,4 +312,22 @@ describe('childPath', () => {
     expect(childPath('/', 'etc')).toBe('/etc')
     expect(childPath('C:\\work\\', 'src')).toBe('C:\\work/src')
   })
+})
+
+
+it('expands a nested additional root independently from the primary tree', async () => {
+  const h = mount()
+  const additional = `${ROOT}/nested`
+  h.face.start(TAB, ROOT, h.controller.signal, [additional])
+  await h.watches.ready(ROOT)
+  await h.settle({ ok: true, value: { entries: [], truncated: false } })
+  await h.watches.ready(additional)
+  await h.settle({ ok: true, value: LEVEL })
+  const child = `${additional}/src`
+  h.face.toggle(TAB, additional, child, [ROOT, additional], h.controller.signal)
+  expect(h.snapshot()?.expanded).toContain(child)
+  const stream = await h.watches.forPath(child)
+  expect(stream.sessionId).toBe(SESSION)
+  await stream.deliver('ready')
+  await h.settle({ ok: true, value: { entries: [], truncated: false } })
 })

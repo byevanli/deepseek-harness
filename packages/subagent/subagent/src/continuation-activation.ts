@@ -625,7 +625,7 @@ export class ContinuableActivationRegistry {
       // the inherited marker; a cold resume replays those persisted events.
       if (create !== undefined) {
         child.session.append('subagent/descriptor', create.descriptor)
-        appendDelegatedPolicyOverrides(child.session, create.delegatedPolicies)
+        appendDelegatedPolicyOverrides(child.session, create.delegatedPolicies, child.ctx.get('sessionProjections'))
       }
       applyChildComposition(childCtx, parent, inputs.composition)
     }

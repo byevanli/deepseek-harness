@@ -107,6 +107,8 @@ NUL 写入是环境性的、不是被授权的：设备 DACL 授予 Everyone 读
 
 Authenticated Users 在两种列表中都不存在——WMI 命名空间安全检查失败（`0x80041003`），因此 CIM cmdlet 与 `Get-ComputerInfo` 在所有受限模式下都不可用，且 C:\-root 树创建逃逸被关闭。INTERACTIVE/LOCAL 同样不存在：宿主的 Public 树向 INTERACTIVE 授予写权限，因此 Public 写入被拒绝。
 
+`additionalWriteGrants` 将每个附加目录与独立的路径派生 SID 配对。runner 接受配对的 `--additional-workspace` 和 `--additional-write-sid` 参数；只读模式不接受任何写能力 SID，包括已有附加目录长期 ACE 对应的 SID。
+
 ### 隔离 runner
 
 面向 seam 的形态是 runner 入口（`./runner`）：`dsh-sandbox-local` 在调用者命令的位置 spawn 的 argv 前缀包装——与 bwrap/landlock-run/sandbox-exec 同一架构。runner 创建受限令牌，在它之下 spawn 包装后的 argv，调用者的 stdio 直接透传，把子进程包进 `KILL_ON_JOB_CLOSE` job，镜像子进程的退出码，并在退出时撤销其自行管理的临时授权。每个 runner 侧失败都会向 stderr 打印 `windows-acl-run: <detail>` 并以 127 退出——seam 的 runner 失败规则匹配该签名。

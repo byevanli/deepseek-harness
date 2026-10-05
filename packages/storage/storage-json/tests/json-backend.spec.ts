@@ -30,6 +30,29 @@ runKvBackendContract('json', async () => {
 describe('json backend specifics', () => {
   const descriptor = { name: 'shape', version: 1, tables: ['t'], hasGlobal: true }
 
+  it('reads an explicitly compatible single version and stamps only a successful write', async () => {
+    const root = await freshRoot()
+    const old = new JsonStorageBackend(root)
+    await (await old.kv.open(descriptor)).putRecord('t', 'kept', { id: 'old' })
+    await old.close()
+    const next = { ...descriptor, version: 2, compatibleVersions: [1] }
+    const backend = new JsonStorageBackend(root)
+    const unit = await backend.kv.open(next)
+    expect((await unit.loadAll()).tables['t']).toEqual({ kept: { id: 'old' } })
+    expect(JSON.parse(await readFile(join(root, 'shape.json'), 'utf8'))).toMatchObject({ unit: { version: 1 } })
+    await expect(unit.putRecord('t', 'bad', { toJSON: () => { throw new Error('serialization failed') } }))
+      .rejects.toThrow('serialization failed')
+    expect(JSON.parse(await readFile(join(root, 'shape.json'), 'utf8'))).toMatchObject({ unit: { version: 1 } })
+    await unit.setGlobal({ saved: true })
+    await backend.close()
+    const reopened = new JsonStorageBackend(root)
+    await expect(reopened.kv.open(descriptor)).rejects.toMatchObject({ code: 'version-mismatch' })
+    const upgraded = await reopened.kv.open(next)
+    expect((await upgraded.loadAll()).tables['t']).toEqual({ kept: { id: 'old' } })
+    expect(JSON.parse(await readFile(join(root, 'shape.json'), 'utf8'))).toMatchObject({ unit: { version: 2 } })
+    await reopened.close()
+  })
+
   it('publishes a human-readable pretty-printed file', async () => {
     const root = await freshRoot()
     const backend = new JsonStorageBackend(root)

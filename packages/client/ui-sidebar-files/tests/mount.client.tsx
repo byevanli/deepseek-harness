@@ -89,6 +89,7 @@ function harness(cwd: string | null, refreshShortcut?: ReturnType<FilesBodyProps
     }),
     renderSlot: () => null,
     sessionId: SESSION,
+    useProjection: () => [],
     useSessions: <S,>(sel: (s: SessionListState) => S) => sel(sessions),
     useStore: hookOf(instance),
     actions: instance.actions,

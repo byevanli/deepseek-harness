@@ -29,15 +29,11 @@ export interface StorageBackend {
 /** The key-value data shape: whole-unit snapshots plus per-record durable writes. */
 export interface KvFacet {
   /**
-   * Open one unit, creating it when the medium holds no trace of it yet
-   * (materialization may defer to the first write, but {@link KvUnit.loadAll}
-   * must immediately serve the empty shape). A version already stamped on the
-   * medium that differs from `descriptor.version` rejects with
-   * `version-mismatch`; a medium that cannot be parsed as this unit rejects
-   * with `malformed-medium`. Opening the same unit name twice without closing
-   * is a caller bug and rejects.
-   * @param descriptor - Static identity and shape of the unit to open.
-   * @returns the opened unit.
+   * 打开具名单元；缺失介质首次写入时物化，读取立即提供空数据。
+   * 只接受当前或显式声明的旧版本，其余以 version-mismatch 拒绝；畸形介质拒绝。
+   * 同名未关闭单元不能重复打开。
+   * @param descriptor - 单元静态标识与记录配置。
+   * @returns 已打开的单元。
    */
   open(descriptor: KvUnitDescriptor): Promise<KvUnit>
 }
@@ -62,13 +58,9 @@ export interface KvUnitDescriptor {
    */
   readonly layout?: 'single' | 'per-record'
   /**
-   * Older unit versions whose stored records are also readable under the
-   * declaring owner's current record schemas (the owner vouches for that —
-   * typically by declaring the fields old records lack as optional). Reads of
-   * a `per-record` unit accept documents stamped with any listed version, and
-   * the legacy whole-unit bootstrap accepts a legacy file stamped with one;
-   * writes always stamp {@link version}. `single`-layout reads stay
-   * exact-version.
+   * 当前记录 schema 明确接受的旧版本；只有低于当前版本的列举值可读。
+   * 单文档和 SQLite 在成功写入数据时原子盖当前版本，读取不升级介质。
+   * per-record 保持逐文档兼容读取与当前版本写入。
    */
   readonly compatibleVersions?: readonly number[]
 }

@@ -11,6 +11,7 @@
  * @module @deepseek-ai/dsh-subagent-dsh-sdk
  */
 
+import { assertSingleDirectoryParent } from '@deepseek-ai/dsh-subagent'
 import type { Context } from '@deepseek-ai/cordis'
 import { statSync } from 'node:fs'
 import { isAbsolute, resolve } from 'node:path'
@@ -142,6 +143,7 @@ class SdkSubagentProvider implements SubagentProvider {
   }
 
   start(request: SubagentStartRequest) {
+    assertSingleDirectoryParent(request.parent, this.ctx.get('sandboxPolicy'))
     if (request.signal.aborted) {
       throw new Error('subagent request was aborted before the SDK child started')
     }

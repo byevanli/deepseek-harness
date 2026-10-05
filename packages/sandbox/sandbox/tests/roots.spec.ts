@@ -44,3 +44,9 @@ describe('writableRoots', () => {
     expect(new Set(writable).size).toBe(writable.length)
   })
 })
+
+
+it('additional roots do not widen read-only but participate in workspace-write', () => {
+  expect(writableRoots({ mode: 'read-only', workspaceRoot: '/primary', additionalDirectories: ['/secondary'] })).toEqual([])
+  expect(writableRoots({ mode: 'workspace-write', workspaceRoot: '/primary', additionalDirectories: ['/secondary'] })).toContain('/secondary')
+})

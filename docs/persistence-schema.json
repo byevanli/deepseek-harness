@@ -11152,6 +11152,80 @@
       }
     },
     {
+      "key": "event:sandbox/directories",
+      "kind": "event",
+      "event": "sandbox/directories",
+      "surface": false,
+      "digest": "57d29f4094454c38fae542e107efbd63d5572575c1c7f34a0d35d1fb6d98bf95",
+      "schema": {
+        "root": 0,
+        "nodes": [
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "data",
+                "type": 1,
+                "optional": false
+              },
+              {
+                "name": "ignorable",
+                "type": 4,
+                "optional": true
+              },
+              {
+                "name": "seq",
+                "type": 5,
+                "optional": false
+              },
+              {
+                "name": "time",
+                "type": 5,
+                "optional": false
+              },
+              {
+                "name": "type",
+                "type": 6,
+                "optional": false
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "additionalDirectories",
+                "type": 2,
+                "optional": false
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "array",
+            "element": 3
+          },
+          {
+            "kind": "primitive",
+            "type": "string"
+          },
+          {
+            "kind": "literal",
+            "value": true
+          },
+          {
+            "kind": "primitive",
+            "type": "number"
+          },
+          {
+            "kind": "literal",
+            "value": "sandbox/directories"
+          }
+        ]
+      }
+    },
+    {
       "key": "event:sandbox/mode",
       "kind": "event",
       "event": "sandbox/mode",
@@ -21829,6 +21903,11 @@
       "sources": []
     },
     {
+      "digest": "046914199c39f4bac6d1cddaa634fc6af6189b52c52a32da2ee45585615de8e5",
+      "names": [],
+      "sources": []
+    },
+    {
       "digest": "05a2796621b1ee6c03ef7abe560b25116bb4da4d592312117242a78415a32b04",
       "names": [],
       "sources": []
@@ -23111,6 +23190,11 @@
     },
     {
       "digest": "5776e5553ff2dfe3f5bc202dbb1e7c9f93e35a531aebb7764c23b2b6153b2ccc",
+      "names": [],
+      "sources": []
+    },
+    {
+      "digest": "57d29f4094454c38fae542e107efbd63d5572575c1c7f34a0d35d1fb6d98bf95",
       "names": [],
       "sources": []
     },
@@ -24620,6 +24704,13 @@
       "digest": "ba77b58995e36f14bb13886b0493d0a1a63d5db10b1a6cd9f6ac65a72cf832ec",
       "names": [],
       "sources": []
+    },
+    {
+      "digest": "ba882926adb7a92a054262fb1b2fc8b978cdf6a58878748963fa8c4060f706a6",
+      "names": [],
+      "sources": [
+        "packages/sandbox/sandbox-policy/src/types.ts:14"
+      ]
     },
     {
       "digest": "babf9ee4d1af62bf6c3a8103737f7a5e4e78ce179be835ce05a38803e15884b7",

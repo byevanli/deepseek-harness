@@ -9,6 +9,7 @@ import SessionStore, { SESSION_FORMAT_VERSION, SessionLogOffset, SessionId } fro
 import type { SessionEvent, SessionHeader } from '@deepseek-ai/dsh-session'
 import { SessionAlreadyOwnedError } from '@deepseek-ai/dsh-session-persistence'
 import type { SessionObservation } from '@deepseek-ai/dsh-session-query'
+import SandboxPolicyService from '@deepseek-ai/dsh-sandbox-policy'
 import TypertRegistry from '@deepseek-ai/dsh-typert-registry'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
@@ -330,6 +331,28 @@ describe('ApiSession model selection', () => {
 })
 
 describe('ApiSession create or adoption', () => {
+  it('captures additional directories during creation and keeps them on later adoption', async () => {
+    const { ctx, agents } = await harness()
+    await ctx.plugin(SandboxPolicyService)
+    const cwd = mkdtempSync(join(tmpdir(), 'dsh-session-directories-'))
+    tempDirs.push(cwd)
+    const id = SessionId('captured-directories')
+    let created: Agent | undefined
+    vi.spyOn(ctx.agents, 'create').mockImplementation(async (options) => {
+      created = agent(ctx, { ...header(id, cwd), ...options.meta })
+      await options.setup?.(ctx, created)
+      return { agent: created, dispose: () => Promise.resolve() }
+    })
+    const captured = ['/secondary']
+    const first = agents.ensureSession(id, cwd, false, undefined, captured)
+    captured.push('/later')
+    await first
+    expect(ctx.sandboxPolicy.directoriesOf(created!.session)).toEqual(['/secondary'])
+    vi.spyOn(ctx.agents, 'get').mockReturnValue(created)
+    await agents.ensureSession(id, cwd, false, undefined, ['/replacement'])
+    expect(ctx.sandboxPolicy.directoriesOf(created!.session)).toEqual(['/secondary'])
+  })
+
   it('shares one in-flight creation between concurrent callers', async () => {
     const { ctx, agents } = await harness()
     const cwd = mkdtempSync(join(tmpdir(), 'dsh-session-controller-concurrent-'))

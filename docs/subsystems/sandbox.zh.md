@@ -8,7 +8,7 @@
 
 ## 模式与强制执行
 
-`SandboxMode` 仅管控文件系统效果。`read-only` 要求后端拒绝写入——POSIX runner 还会授予其 shell 所需的 `/dev/null` 接收器，而 Windows ACL runner 不授予任何显式可写根目录，并因环境 ACL 缺口报告部分强制执行；`workspace-write` 允许在工作区根目录及后端承诺的临时区域下写入；`danger-full-access` 绕过隔离。网络与进程可见性不在此处的定义范围内。
+`SandboxMode` 仅管控文件系统效果。`read-only` 要求后端拒绝写入——POSIX runner 还会授予其 shell 所需的 `/dev/null` 接收器，而 Windows ACL runner 不授予任何显式可写根目录，并因环境 ACL 缺口报告部分强制执行；`workspace-write` 允许在会话捕获的主要目录、附加目录及后端承诺的临时区域下写入；`danger-full-access` 绕过隔离。网络与进程可见性不在此处的定义范围内。
 
 ```ts type-equiv
 /**
@@ -40,7 +40,7 @@ type SandboxEnforcement = 'full' | 'partial'
 
 ## 逐调用策略
 
-完整执行策略会按每次能力调用解析并携带。它包括 `danger-full-access`，因此消费方可以只解析一次策略，再决定是否绕过约束。普通工具调用从调用会话的不可变 cwd 派生 `workspaceRoot`；部署配置是没有 agent（智能体）时的回退值。解析器保留执行环境中的绝对路径写法。执行限制的提供方在文件实际存在的位置规范化根目录，因此包含 `symlink/..` 的 cwd 会标识配套子进程提供方实际运行的目录。
+完整执行策略会按每次能力调用解析并携带。它包括 `danger-full-access`，因此消费方可以只解析一次策略，再决定是否绕过约束。普通工具调用从调用会话的不可变 cwd 派生 `workspaceRoot`，从 `sandboxDirectories` 投影读取附加目录；部署配置是没有 agent（智能体）时的回退值。解析器保留执行环境中的绝对路径写法。执行限制的提供方在文件实际存在的位置规范化所有根目录，因此包含 `symlink/..` 的 cwd 会标识配套子进程提供方实际运行的目录。
 
 ```ts type-equiv
 /**
@@ -53,6 +53,8 @@ interface SandboxExecutionPolicy {
   mode: SandboxMode
   /** Absolute root directory `workspace-write` may write under. */
   workspaceRoot: string
+  /** 会话捕获的附加绝对目录；省略时只使用主要目录。 */
+  additionalDirectories?: readonly string[]
   /**
    * Opaque identity of the calling session (the branded `dsh-session`
    * SessionId). Backends key per-session state off it (e.g. windows-acl gives
@@ -206,6 +208,13 @@ The sandbox-policy service (`ctx.sandboxPolicy`). Owns the deployment default mo
  * @returns the fully resolved per-call mode and absolute workspace root.
  */
 resolve(request: SandboxPolicyRequest = {}): SandboxExecutionPolicy
+
+/**
+ * 读取会话目录快照，未初始化的旧会话使用空列表。
+ * @param session - 目录所属会话。
+ * @returns 捕获的附加目录。
+ */
+directoriesOf(session: Session): readonly string[]
 
 /**
  * Read the session override without applying the deployment default.

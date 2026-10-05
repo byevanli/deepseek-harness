@@ -105,6 +105,8 @@ NUL writes are ambient, not granted: the device DACL grants Everyone read+write+
 
 Authenticated Users is absent from both lists — the WMI namespace security check fails (`0x80041003`), so CIM cmdlets and `Get-ComputerInfo` are unavailable in every confined mode, and the C:\-root tree-creation escape is closed. INTERACTIVE/LOCAL are absent too: the host's Public tree grants write to INTERACTIVE, so Public writes are denied.
 
+`additionalWriteGrants` pairs each additional directory with a distinct path-derived SID. The runner accepts matching `--additional-workspace` and `--additional-write-sid` arguments; read-only accepts no write capability SIDs, including those associated with standing secondary-directory ACEs.
+
 ### The confinement runner
 
 The seam-facing shape is the runner entry (`./runner`): an argv-prefix wrapper `dsh-sandbox-local` spawns in place of the caller's command, with the same architecture as bwrap/landlock-run/sandbox-exec. The runner creates the restricted token, spawns the wrapped argv under it with the caller's stdio passed straight through, wraps the child in a `KILL_ON_JOB_CLOSE` job, mirrors the child's exit code, and revokes its self-managed temp grant on exit. Every runner-side failure prints `windows-acl-run: <detail>` to stderr and exits 127 — the seam's runner-failure rules match that signature.

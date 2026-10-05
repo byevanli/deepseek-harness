@@ -11,6 +11,7 @@ import type {} from '@deepseek-ai/dsh-agent-preset-registry'
 import { ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import type { Session, SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionInspection } from '@deepseek-ai/dsh-session-persistence'
+import { setSessionDirectories } from '@deepseek-ai/dsh-sandbox-policy'
 import { SessionQueryError, type SessionObservation } from '@deepseek-ai/dsh-session-query'
 import { RemoteError } from '@deepseek-ai/dsh-typert-protocol'
 import type {} from '@deepseek-ai/dsh-typert-registry'
@@ -234,6 +235,7 @@ export class ApiSessionAgentController {
    * @param cwd - directory the Session must own.
    * @param checkPersistedIdentity - whether to inspect a cold identity before creation.
    * @param presetId - optional Agent preset the Session must own.
+   * @param additionalDirectories - 仅新会话捕获的附加目录；已有会话保留原配置。
    * @returns the matching live ordinary Agent.
    */
   async ensureSession(
@@ -241,10 +243,11 @@ export class ApiSessionAgentController {
     cwd: string,
     checkPersistedIdentity: boolean,
     presetId?: string,
+    additionalDirectories: readonly string[] = [],
   ): Promise<Agent> {
     let creation = this.creations.get(sessionId)
     if (creation === undefined) {
-      creation = this.createOrAdopt(sessionId, cwd, checkPersistedIdentity, presetId)
+      creation = this.createOrAdopt(sessionId, cwd, checkPersistedIdentity, presetId, [...additionalDirectories])
         .catch((error: unknown) => {
           const live = this.ctx.agents.get(sessionId)
           if (live !== undefined) {
@@ -446,6 +449,7 @@ export class ApiSessionAgentController {
     cwd: string,
     checkPersistedIdentity: boolean,
     presetId: string | undefined,
+    additionalDirectories: readonly string[],
   ): Promise<Agent> {
     const attached = this.ctx.sessions.get(sessionId)
     const live = this.ctx.agents.get(sessionId)
@@ -490,7 +494,10 @@ export class ApiSessionAgentController {
         cwd,
         ...(composition.agentPreset === undefined ? {} : { agentPreset: composition.agentPreset }),
       },
-      setup: composition.setup,
+      setup: async (agentCtx, agent) => {
+        setSessionDirectories(agent.session, additionalDirectories, this.ctx.sessionProjections)
+        return await composition.setup(agentCtx, agent)
+      },
     })).agent
   }
 

@@ -324,7 +324,13 @@ export class LocalSandboxProvider extends SandboxProvider {
    */
   async confine(argv: readonly string[], policy: SandboxPolicy, signal?: AbortSignal): Promise<ConfinedArgv> {
     signal?.throwIfAborted()
-    policy = { ...policy, workspaceRoot: canonicalPath(policy.workspaceRoot) }
+    policy = {
+      ...policy,
+      workspaceRoot: canonicalPath(policy.workspaceRoot),
+      ...policy.additionalDirectories === undefined ? {} : {
+        additionalDirectories: [...new Set(policy.additionalDirectories.map(canonicalPath))],
+      },
+    }
     if (this.runnerCommand !== undefined) {
       return Promise.resolve<ConfinedArgv>({
         argv: [...this.runnerCommand, ...bwrapProfileArgs(policy), '--', ...argv],
@@ -368,18 +374,23 @@ export class LocalSandboxProvider extends SandboxProvider {
    */
   private windowsAclRunnerArgv(policy: SandboxPolicy): string[] {
     const sessionId = policy.sessionId
+    const additional = policy.additionalDirectories ?? []
+    const additionalArgs = additional.flatMap(root => ['--additional-workspace', root])
     if (sessionId === undefined || policy.mode === 'read-only') {
       return [
         ...this.windowsAclRunnerInvocation(),
         '--workspace', policy.workspaceRoot,
+        ...additionalArgs,
         '--temp', tmpdir(),
         '--mode', policy.mode,
       ]
     }
-    const temp = this.materializeAclGrant(sessionId, policy.workspaceRoot)
+    const temp = this.materializeAclGrant(sessionId, policy.workspaceRoot, additional)
     return [
       ...this.windowsAclRunnerInvocation(),
       '--workspace', policy.workspaceRoot,
+      ...additionalArgs,
+      ...additional.flatMap(root => ['--additional-write-sid', workspaceWriteSid(root)]),
       '--temp', temp.dir,
       '--mode', policy.mode,
       '--write-sid', workspaceWriteSid(policy.workspaceRoot),
@@ -398,29 +409,33 @@ export class LocalSandboxProvider extends SandboxProvider {
    * removed before the error propagates.
    * @param sessionId - the policy's calling-session identity.
    * @param workspaceRoot - the resolved policy root.
+   * @param additional - 各自持有独立长期授权的附加目录。
    * @returns the pair's private temp directory and write capability.
    */
-  private materializeAclGrant(sessionId: SessionId, workspaceRoot: string): AclTempCapability {
-    assertTempRootOutsideWorkspace(workspaceRoot, tmpdir())
-    const writeSid = workspaceWriteSid(workspaceRoot)
-    if (!this.workspaceGrants.has(workspaceRoot)) {
-      const grant = AclWriteGrant.create(writeSid)
-      try {
-        grant.add(workspaceRoot, true)
-      } catch (error) {
-        // Free the SID; a standing ACE (if the apply succeeded before a
-        // post-apply throw) is the intended end state, not an error
-        // artifact — nothing to revoke.
+  private materializeAclGrant(sessionId: SessionId, workspaceRoot: string, additional: readonly string[]): AclTempCapability {
+    const roots = [workspaceRoot, ...additional]
+    for (const root of roots) assertTempRootOutsideWorkspace(root, tmpdir())
+    for (const root of roots) {
+      const writeSid = workspaceWriteSid(root)
+      if (!this.workspaceGrants.has(root)) {
+        const grant = AclWriteGrant.create(writeSid)
         try {
-          grant.dispose()
-        } catch (cleanupError) {
-          throw new AggregateError([error, cleanupError], 'sandbox-local windows-acl workspace grant failed and its cleanup also failed')
+          grant.add(root, true)
+        } catch (error) {
+          // Free the SID; a standing ACE (if the apply succeeded before a
+          // post-apply throw) is the intended end state, not an error
+          // artifact — nothing to revoke.
+          try {
+            grant.dispose()
+          } catch (cleanupError) {
+            throw new AggregateError([error, cleanupError], 'sandbox-local windows-acl workspace grant failed and its cleanup also failed')
+          }
+          throw error
         }
-        throw error
+        this.workspaceGrants.set(root, grant)
       }
-      this.workspaceGrants.set(workspaceRoot, grant)
     }
-    const key = JSON.stringify([String(sessionId), workspaceRoot])
+    const key = JSON.stringify([String(sessionId), ...roots])
     const existing = this.tempCapabilities.get(key)
     if (existing !== undefined) return existing
     const tempDir = mkdtempSync(join(tmpdir(), 'dsh-'))

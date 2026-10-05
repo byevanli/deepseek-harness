@@ -10,7 +10,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import {
-  assertPositiveFinite,
+  assertPositiveFinite, assertSingleDirectoryParent,
   NO_START_CAPABILITIES,
   resolveChildCwd,
   type ResolvedSubagentStartRequest,
@@ -71,6 +71,7 @@ class CodexProvider implements SubagentProvider {
   ) {}
 
   start(request: ResolvedSubagentStartRequest) {
+    assertSingleDirectoryParent(request.parent, this.ctx.get('sandboxPolicy'))
     const parentCwd = request.parent.session.header.cwd
     if (parentCwd === undefined) {
       throw new Error(

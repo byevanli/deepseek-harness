@@ -1,18 +1,6 @@
 /**
- * The workspace/session browsing region filling the sidebar shell's
- * `sidebar.workspaces` hole: section header (title + view options + add
- * workspace), search, the grouped tree or flat list, and the workspace
- * dialogs. Wide state renders the full browser; rail state renders the two
- * region icons (search / add workspace) as 36px controls on the shell's shared
- * rail entry path, each requesting expansion through the owner share. Adding
- * is the header button's one action, so it raises the directory flow with no
- * menu in between; the flow and its error dialog live in WorkspacePicker
- * (same package — direct composition, no slot between them). A Session row's
- * "..." menu and hover buttons are the `sidebar.workspaces.session.menu.item`
- * and `sidebar.workspaces.session.row.action` lists rendered through this
- * entry's `renderSlot`; the actions in them, this package's own included,
- * are slot entries with their own behavior, so this component threads no
- * action callbacks and hosts no action surface.
+ * 侧栏工作区与会话列表。创建和编辑表单共享目录选择插槽，完整配置在保存时提交。
+ * 会话行菜单和悬停按钮由各自列表插槽提供，弹窗状态由浏览区域持有。
  */
 import { type CSSProperties, type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import clsx from 'clsx'
@@ -40,6 +28,7 @@ import { ProjectRowItem, SearchResultItem, SessionNodeItem } from './Rows.tsx'
 import { AnimatedRows } from './AnimatedRows.tsx'
 import { FLAT_SESSION_ORDER_KEY, type SessionGroupBy } from '../stores.ts'
 import { WorkspacePickFlow } from '../WorkspacePicker.tsx'
+import { WorkspaceEditor } from '../WorkspaceEditor.tsx'
 import css from './WorkspaceBrowser.module.css'
 
 /**
@@ -846,7 +835,7 @@ export function WorkspaceBrowser({
   open,
   requestSessionRename,
   notifyArchivedNotOpenable,
-  renameWorkspace,
+  updateWorkspace,
   deleteWorkspace,
   insertWorkspaceBefore,
   unarchiveSession,
@@ -1027,7 +1016,6 @@ export function WorkspaceBrowser({
   // states; the menu anchors on this button).
   const wsPickerOpen = shortcutState.addRequested
   const wsPlusRef = useRef<HTMLButtonElement>(null)
-  const composingRef = useRef(false)
 
   const openSearchResult = (sessionId: SessionId): void => {
     if (archivedSessionIds.includes(sessionId)) {
@@ -1127,39 +1115,10 @@ export function WorkspaceBrowser({
     }
   }, [normalizedQuery, searchSessions])
 
-  // Rename dialog (browser-owned so it outlives row unmounts during collapse).
-  // The stored title decides whether confirming is a real rename; the draft is
-  // seeded with the label on screen. They differ for a Workspace still
-  // carrying its automatic title, so confirming the prefill pins that name.
-  const [renameTarget, setRenameTarget] = useState<{ workspaceId: WorkspaceId; storedTitle: string } | null>(null)
-  const [renameDraft, setRenameDraft] = useState('')
-  const [renaming, setRenaming] = useState(false)
-  const [renameError, setRenameError] = useState<string | null>(null)
-  const renameTrimmed = renameDraft.trim()
-  // Self is excluded by identity, not by title: the draft is seeded with the
-  // localized label, which for an automatically titled Workspace equals its
-  // own displayed title without being a conflict with itself.
-  const renameDuplicate = renameTarget !== null && renameTrimmed !== ''
-    && workspaces.some(w => w.workspaceId !== renameTarget.workspaceId && w.title === renameTrimmed)
-  const renameBlocked = renaming || renameTrimmed === ''
-    || renameTarget === null || renameTrimmed === renameTarget.storedTitle || renameDuplicate
-  const closeRename = () => {
-    if (renaming) return
-    setRenameTarget(null)
-    setRenameError(null)
-  }
-  const confirmRename = () => {
-    if (renameBlocked) return
-    setRenaming(true)
-    setRenameError(null)
-    renameWorkspace(renameTarget.workspaceId, renameTrimmed).then(() => {
-      setRenaming(false)
-      setRenameTarget(null)
-    }).catch((reason: unknown) => {
-      setRenaming(false)
-      setRenameError(reason instanceof Error ? reason.message : String(reason))
-    })
-  }
+  const [editTarget, setEditTarget] = useState<WorkspaceView | null>(null)
+  const editingFlowAvailable = useDirectoryFlow(occupied => occupied)
+  const [creatingWorkspace, setCreatingWorkspace] = useState(false)
+  useEffect(() => { setDirectoryBusy(creatingWorkspace || editTarget !== null) }, [creatingWorkspace, editTarget, setDirectoryBusy])
 
   // The search results' restore button; the row actions own the rest of the
   // Session verbs as slot entries.
@@ -1311,7 +1270,7 @@ export function WorkspaceBrowser({
           useDirectoryFlow={useDirectoryFlow}
           renderDirectoryFlow={owner => renderSlot('sidebar.workspaces.directoryFlow', owner)}
           addOnly
-          onBusyChange={setDirectoryBusy}
+          onBusyChange={setCreatingWorkspace}
           side="right"
           onPick={(workspaceId) => {
             closeAddWorkspace()
@@ -1403,13 +1362,8 @@ export function WorkspaceBrowser({
                 onSessionRevealed={acknowledgeSessionReveal}
                 home={home}
                 t={t}
-                onRenameRequest={(workspaceId, displayTitle) => {
-                  setRenameTarget({
-                    workspaceId,
-                    storedTitle: storedWorkspaces.find(w => w.workspaceId === workspaceId)?.title ?? displayTitle,
-                  })
-                  setRenameDraft(displayTitle)
-                  setRenameError(null)
+                onRenameRequest={(workspaceId) => {
+                  setEditTarget(storedWorkspaces.find(workspace => workspace.workspaceId === workspaceId) ?? null)
                 }}
                 onDeleteRequest={(workspaceId, title) => {
                   setDeleteTarget({ workspaceId, title })
@@ -1419,40 +1373,19 @@ export function WorkspaceBrowser({
             ))}
       </div>
 
-      <Modal
-        open={renameTarget !== null}
-        onClose={closeRename}
-        closeLabel={t('close')}
-        title={t('rename.workspace.title')}
-        footer={(
-          <>
-            <Button variant="outline" disabled={renaming} onClick={closeRename}>{t('cancel')}</Button>
-            <Button variant="primary" disabled={renameBlocked} onClick={confirmRename}>{t('rename')}</Button>
-          </>
-        )}
-      >
-        <input
-          className={css.renameInput}
-          value={renameDraft}
-          aria-label={t('field.workspaceName')}
-          data-modal-autofocus
-          disabled={renaming}
-          onFocus={(e) => { e.target.select() }}
-          onChange={(e) => { setRenameDraft(e.target.value); setRenameError(null) }}
-          onCompositionStart={() => { composingRef.current = true }}
-          onCompositionEnd={() => { composingRef.current = false }}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && !composingRef.current) {
-              e.preventDefault()
-              confirmRename()
-            }
-          }}
-        />
-        {renameDuplicate && (
-          <div className={css.renameError} role="alert">{t('conflict.named', { name: renameTrimmed })}</div>
-        )}
-        {renameError !== null && <div className={css.renameError} role="alert">{renameError}</div>}
-      </Modal>
+      {editTarget !== null && <WorkspaceEditor
+        key={editTarget.workspaceId}
+        workspace={editTarget}
+        titles={workspaces.filter(workspace => workspace.workspaceId !== editTarget.workspaceId).map(workspace => workspace.title)}
+        t={t}
+        flowAvailable={editingFlowAvailable}
+        renderDirectoryFlow={owner => renderSlot('sidebar.workspaces.directoryFlow', owner)}
+        onClose={() => { setEditTarget(null) }}
+        onSave={async (input) => {
+          await updateWorkspace({ workspaceId: editTarget.workspaceId, path: input.path,
+            title: input.title ?? editTarget.title, additionalDirectories: input.additionalDirectories ?? [] })
+        }}
+      />}
 
       <Modal
         open={deleteTarget !== null}

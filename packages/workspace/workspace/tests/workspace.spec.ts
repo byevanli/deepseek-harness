@@ -1,10 +1,12 @@
 import type { z } from 'zod'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, join, relative } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
 import Storage from '@deepseek-ai/dsh-storage'
+import { JsonStorageBackend } from '../../../storage/storage-json/src/index.ts'
+import { SqliteStorageBackend, Config as SqliteConfig } from '../../../storage/storage-sqlite/src/index.ts'
 import type { StorageBackend } from '@deepseek-ai/dsh-storage'
 import { DomainFacility } from '@deepseek-ai/dsh-storage-domain'
 import type { DomainChanged } from '@deepseek-ai/dsh-storage-domain'
@@ -16,6 +18,7 @@ import { MemoryMediaPool, MemoryStorageBackend } from '../../../storage/storage-
 import WorkspaceRegistry, {
   WorkspaceId,
   type workspaceDomainState,
+  type workspaceRecord,
   WorkspaceMoveInvalidError,
   WorkspaceOrderInvalidError,
 } from '../src/index.ts'
@@ -136,7 +139,7 @@ function selectiveFailureBackend(
   }
 }
 
-function record(path: string, sessionIds: string[], createdAt = '2026-07-24T00:00:00.000Z'): WorkspaceRecord {
+function record(path: string, sessionIds: string[], createdAt = '2026-07-24T00:00:00.000Z'): z.input<typeof workspaceRecord> {
   return {
     path,
     title: basename(path),
@@ -154,7 +157,7 @@ function record(path: string, sessionIds: string[], createdAt = '2026-07-24T00:0
 type StoredDomainState = z.input<typeof workspaceDomainState>
 
 function storedPool(
-  entries: Array<[string, WorkspaceRecord]>,
+  entries: Array<[string, z.input<typeof workspaceRecord>]>,
   state: StoredDomainState,
 ): MemoryMediaPool {
   const pool = new MemoryMediaPool()
@@ -191,6 +194,150 @@ afterEach(async () => {
 })
 
 describe('WorkspaceRegistry lifecycle and bootstrap', () => {
+  it('revalidates retained directories after one is replaced by a symlink to another retained root', async () => {
+    const primary = await makeDir('retained-primary')
+    const secondary = await makeDir('retained-secondary')
+    const result = await harness()
+    const workspace = await result.registry.create({ path: primary, title: 'Original', additionalDirectories: [secondary] })
+    await rm(primary, { recursive: true })
+    await symlink(secondary, primary, process.platform === 'win32' ? 'junction' : 'dir')
+    await expect(result.registry.update(workspace.id, { path: primary, title: 'Changed', additionalDirectories: [secondary] }))
+      .rejects.toThrow(/repeated/)
+    expect(workspace.title).toBe('Original')
+    expect(workspace.path).toBe(primary)
+    expect(workspace.additionalDirectories).toEqual([secondary])
+  })
+
+  it('retains a saved missing directory under a replaced parent but rejects a newly added path there', async () => {
+    const parent = await makeDir('retained-replaced-parent')
+    const primary = join(parent, 'project')
+    await mkdir(primary)
+    const result = await harness()
+    const workspace = await result.registry.create(primary)
+    await rm(parent, { recursive: true })
+    await writeFile(parent, 'not a directory')
+    await expect(result.registry.update(workspace.id, { path: primary, title: 'Retained', additionalDirectories: [] }))
+      .resolves.toBe(workspace)
+    expect(workspace.path).toBe(primary)
+    await expect(result.registry.update(workspace.id, {
+      path: primary, title: 'Rejected', additionalDirectories: [join(parent, 'new')],
+    })).rejects.toMatchObject({ code: 'ENOTDIR' })
+    expect(workspace.title).toBe('Retained')
+  })
+
+  it('refuses a retained directory replaced by a regular file without modifying the record', async () => {
+    const primary = await makeDir('retained-file')
+    const result = await harness()
+    const workspace = await result.registry.create(primary)
+    await rm(primary, { recursive: true })
+    await writeFile(primary, 'not a directory')
+    await expect(result.registry.update(workspace.id, { path: primary, title: 'Changed', additionalDirectories: [] }))
+      .rejects.toThrow(/not a directory/)
+    expect(workspace.title).not.toBe('Changed')
+  })
+
+  it.skipIf(process.platform === 'win32')('refuses permission errors on retained directories instead of treating them as missing', async () => {
+    const parent = await makeDir('retained-denied-parent')
+    const primary = join(parent, 'project')
+    await mkdir(primary)
+    const result = await harness()
+    const workspace = await result.registry.create(primary)
+    try {
+      await chmod(parent, 0o000)
+      await expect(result.registry.update(workspace.id, { path: primary, title: 'Changed', additionalDirectories: [] }))
+        .rejects.toMatchObject({ code: 'EACCES' })
+      expect(workspace.title).not.toBe('Changed')
+    } finally { await chmod(parent, 0o700) }
+  })
+
+  it('rejects conflicting explicit create configuration while retaining legacy path reuse', async () => {
+    const path = await makeDir('configured-create')
+    const extra = await makeDir('configured-extra')
+    const result = await harness()
+    const original = await result.registry.create({ path, title: 'Named', additionalDirectories: [extra] })
+    await expect(result.registry.create(path, 'Legacy ignored title')).resolves.toBe(original)
+    await expect(result.registry.create({ path, title: 'Named', additionalDirectories: [extra] })).resolves.toBe(original)
+    await expect(result.registry.create({ path, title: 'Other', additionalDirectories: [extra] })).rejects.toThrow(/configuration conflicts/)
+    await expect(result.registry.create({ path, title: 'Named', additionalDirectories: [] })).rejects.toThrow(/configuration conflicts/)
+    expect(original.title).toBe('Named')
+    expect(original.additionalDirectories).toEqual([extra])
+  })
+
+  it.each(['json', 'sqlite'] as const)('upgrades old %s data while retaining identities and all display state', async (kind) => {
+    const root = await makeDir(`real-upgrade-${kind}`)
+    const path = join(root, 'missing')
+    const id = WorkspaceId('durable-old')
+    const backend = () => kind === 'json'
+      ? new JsonStorageBackend(root)
+      : new SqliteStorageBackend(new SqliteConfig({ path: join(root, 'data.db') }))
+    const old = backend()
+    const unit = await old.kv.open({ name: 'workspace', version: 2, tables: ['workspaces'], hasGlobal: true })
+    const stored = record(path, ['second', 'first'])
+    await unit.putRecord('workspaces', id, stored)
+    await unit.setGlobal({ initialized: true, workspaceIds: [id], archivedSessionIds: ['second'], pinnedSessionIds: ['first'], defaultWorkspaceId: id })
+    await old.close()
+    const current = backend()
+    const first = await harness({ backend: current })
+    const workspace = first.registry.get(id)!
+    expect(workspace.sessionIds).toEqual(['second', 'first'])
+    expect(workspace.additionalDirectories).toEqual([])
+    expect(workspace.createdAt).toBe(stored.createdAt)
+    expect(workspace.updatedAt).toBe(stored.updatedAt)
+    await workspace.setTitle('updated')
+    await first.fiber.dispose()
+    await current.close()
+    const reopened = backend()
+    const second = await harness({ backend: reopened })
+    expect(second.registry.list().map(value => value.id)).toEqual([id])
+    expect(second.registry.get(id)!.sessionIds).toEqual(['second', 'first'])
+    expect(second.registry.archivedSessionIds).toEqual(['second'])
+    expect(second.registry.pinnedSessionIds).toEqual(['first'])
+    await second.fiber.dispose()
+    await reopened.close()
+    const previous = backend()
+    await expect(previous.kv.open({ name: 'workspace', version: 2, tables: ['workspaces'], hasGlobal: true }))
+      .rejects.toMatchObject({ code: 'version-mismatch' })
+    await previous.close()
+  })
+
+  it('keeps old ownership and order when directories are missing and configuration changes', async () => {
+    const primary = await makeDir('upgrade-primary')
+    const secondary = await makeDir('upgrade-secondary')
+    const id = WorkspaceId('old-workspace')
+    const pool = storedPool([[id, record(primary, ['old', 'missing'])]], {
+      initialized: true, workspaceIds: [id], archivedSessionIds: [SessionId('old')], pinnedSessionIds: [],
+    })
+    pool.versions.set('workspace', 2)
+    await rm(primary, { recursive: true })
+    const first = await harness({ pool, sessions: [header('old', primary)] })
+    const workspace = first.registry.get(id)!
+    expect(workspace.additionalDirectories).toEqual([])
+    expect(workspace.sessionIds).toEqual(['old', 'missing'])
+    await first.registry.update(id, { path: primary, title: 'renamed', additionalDirectories: [secondary] })
+    expect(workspace.sessionIds).toEqual(['old', 'missing'])
+    expect(first.registry.archivedSessionIds).toEqual(['old'])
+    await first.fiber.dispose()
+    const second = await harness({ pool, sessions: [header('old', primary)] })
+    expect(second.registry.get(id)!.sessionIds).toEqual(['old', 'missing'])
+    expect(second.registry.get(id)!.additionalDirectories).toEqual([secondary])
+    expect(second.registry.list().map(value => value.id)).toEqual([id])
+  })
+
+  it('serializes competing ownership attachments even when directories are shared', async () => {
+    const firstPath = await makeDir('owner-first')
+    const secondPath = await makeDir('owner-second')
+    const shared = await makeDir('owner-shared')
+    const result = await harness()
+    const first = await result.registry.create({ path: firstPath, additionalDirectories: [shared] })
+    const second = await result.registry.create({ path: secondPath, additionalDirectories: [shared] })
+    result.setSessions([header('shared-session', shared)])
+    const settled = await Promise.allSettled([
+      first.attachSession(SessionId('shared-session')), second.attachSession(SessionId('shared-session')),
+    ])
+    expect(settled.map(value => value.status).sort()).toEqual(['fulfilled', 'rejected'])
+    expect([...first.sessionIds, ...second.sessionIds]).toEqual(['shared-session'])
+  })
+
   it('stays pending without sessionPersistence and never opens or marks the domain', async () => {
     const pool = new MemoryMediaPool()
     const ctx = await storageContext(pool)
@@ -333,7 +480,7 @@ describe('WorkspaceRegistry lifecycle and bootstrap', () => {
     const second = await makeDir('fallback-second')
     const firstId = WorkspaceId('00000000-0000-4000-8000-000000000020')
     const secondId = WorkspaceId('00000000-0000-4000-8000-000000000021')
-    const entries: Array<[string, WorkspaceRecord]> = [
+    const entries: Array<[string, z.input<typeof workspaceRecord>]> = [
       [secondId, record(second, [], '2026-07-24T00:00:00.000Z')],
       [firstId, record(first, [], '2026-07-24T00:00:00.000Z')],
     ]
@@ -727,7 +874,7 @@ describe('Workspace session ordering', () => {
     expect(result.list).toHaveBeenCalledTimes(1)
   })
 
-  it('rejects mismatched, missing, unresolved, non-directory, and unknown cwd facts', async () => {
+  it('attaches existing sessions independently of cwd and rejects unknown sessions', async () => {
     const dir = await makeDir('strict')
     const elsewhere = await makeDir('elsewhere')
     const gone = await makeDir('gone')
@@ -742,12 +889,12 @@ describe('Workspace session ordering', () => {
     ])
     await rm(gone, { recursive: true })
     const workspace = await result.registry.create(dir)
-    await expect(workspace.attachSession(SessionId('mismatch'))).rejects.toThrow(/resolves to/)
-    await expect(workspace.attachSession(SessionId('no-cwd'))).rejects.toThrow(/no cwd/)
-    await expect(workspace.attachSession(SessionId('gone'))).rejects.toThrow(/does not resolve/)
-    await expect(workspace.attachSession(SessionId('file'))).rejects.toThrow(/not a directory/)
+    await workspace.attachSession(SessionId('mismatch'))
+    await workspace.attachSession(SessionId('no-cwd'))
+    await workspace.attachSession(SessionId('gone'))
+    await workspace.attachSession(SessionId('file'))
     await expect(workspace.attachSession(SessionId('unknown'))).rejects.toThrow(/no such session/)
-    expect(workspace.sessionIds).toEqual([])
+    expect(workspace.sessionIds).toEqual(['file', 'gone', 'no-cwd', 'mismatch'])
   })
 
   it('decides detach/attach membership at domain write-chain slots', async () => {
@@ -763,8 +910,8 @@ describe('Workspace session ordering', () => {
 
 })
 
-describe('header-validated membership projection', () => {
-  it('requires both candidate id and matching canonical cwd without re-reading on list()', async () => {
+describe('durable membership projection', () => {
+  it('keeps durable ownership independently of cwd and header availability', async () => {
     const owned = await makeDir('owned')
     const elsewhere = await makeDir('projection-elsewhere')
     const id = WorkspaceId('00000000-0000-4000-8000-000000000001')
@@ -781,13 +928,13 @@ describe('header-validated membership projection', () => {
       ],
     })
     const workspace = result.registry.list()[0]!
-    expect(workspace.sessionIds).toEqual(['good'])
-    expect(result.registry.list()[0]!.sessionIds).toEqual(['good'])
+    expect(workspace.sessionIds).toEqual(['good', 'mismatch', 'missing'])
+    expect(result.registry.list()[0]!.sessionIds).toEqual(['good', 'mismatch', 'missing'])
     expect(result.list).toHaveBeenCalledTimes(1)
     expect(storedRecord(pool, id).sessionIds).toEqual(['good', 'mismatch', 'missing'])
 
-    await workspace.setTitle('pruned')
-    expect(storedRecord(pool, id).sessionIds).toEqual(['good'])
+    await workspace.setTitle('retained')
+    expect(storedRecord(pool, id).sessionIds).toEqual(['good', 'mismatch', 'missing'])
     expect(workspace.sessionIds).not.toContain('cwd-only')
   })
 

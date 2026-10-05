@@ -87,6 +87,58 @@ async function nextFrame(
 }
 
 describe('WorkspaceController commands', () => {
+  it('reports conflicts instead of discarding an explicit create draft for an existing primary', async () => {
+    const { controller, root } = await harness()
+    const path = stageDir(root, 'configured-primary')
+    const extra = stageDir(root, 'configured-extra')
+    const original = await controller.create({ path, title: 'Named', additionalDirectories: [extra] })
+    await expect(controller.create({ path })).resolves.toEqual({ workspace: original.workspace, created: false })
+    await expect(controller.create({ path, title: ' Named ', additionalDirectories: [extra] }))
+      .resolves.toEqual({ workspace: original.workspace, created: false })
+    for (const request of [
+      { path, title: 'Other', additionalDirectories: [extra] },
+      { path, title: 'Named', additionalDirectories: [] },
+    ]) await expect(controller.create(request)).rejects.toMatchObject({ code: 'workspace/configuration-conflict' })
+    await expect(controller.create({ path })).resolves.toEqual({ workspace: original.workspace, created: false })
+  })
+
+  it('atomically saves a named multi-directory configuration and preserves it after rejected saves', async () => {
+    const { controller, root } = await harness()
+    const primary = stageDir(root, 'multi-primary')
+    const secondary = stageDir(root, 'multi-secondary')
+    const created = await controller.create({ path: primary, title: ' Named ', additionalDirectories: [secondary] })
+    expect(created.workspace).toMatchObject({ path: primary, title: 'Named', additionalDirectories: [secondary] })
+    const workspaceId = created.workspace.workspaceId
+    const updated = await controller.update({ workspaceId, path: secondary, title: 'Changed', additionalDirectories: [primary] })
+    expect(updated.workspace).toMatchObject({ path: secondary, title: 'Changed', additionalDirectories: [primary] })
+    await expect(controller.update({ workspaceId, path: primary, title: 'Rejected', additionalDirectories: [primary] }))
+      .rejects.toMatchObject({ code: 'workspace/invalid-path' })
+    const again = await controller.create({ path: secondary })
+    expect(again.workspace).toEqual(updated.workspace)
+  })
+
+  it('rejects missing, duplicate and occupied primary directories without partial configuration writes', async () => {
+    const { controller, ctx, root } = await harness()
+    const path = stageDir(root, 'atomic-primary')
+    const secondary = stageDir(root, 'atomic-secondary')
+    const occupied = stageDir(root, 'atomic-occupied')
+    const original = await controller.create({ path, title: 'Original', additionalDirectories: [secondary] })
+    await controller.create({ path: occupied, title: 'Occupied' })
+    const request = { workspaceId: original.workspace.workspaceId, path, title: 'Changed', additionalDirectories: [secondary] }
+    for (const invalid of [
+      { ...request, path: '' },
+      { ...request, path: occupied },
+      { ...request, additionalDirectories: [join(root, 'not-present')] },
+      { ...request, additionalDirectories: [secondary, secondary] },
+    ]) await expect(controller.update(invalid)).rejects.toMatchObject({ code: 'workspace/invalid-path' })
+    const workspace = ctx.workspaceRegistry.get(request.workspaceId)!
+    expect(workspace.title).toBe('Original')
+    expect(workspace.path).toBe(path)
+    expect(workspace.additionalDirectories).toEqual([secondary])
+    await expect(controller.create({ path: stageDir(root, 'named-duplicate'), title: ' Original ' }))
+      .rejects.toMatchObject({ code: 'workspace/name-conflict' })
+  })
+
   it('serializes concurrent path adoption and preserves an existing title', async () => {
     const { controller, root } = await harness()
     const path = stageDir(root, 'alpha')

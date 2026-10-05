@@ -91,7 +91,7 @@ This section explains the design decisions behind the feature and points at the 
 ### Design philosophy
 
 - **One record per canonical path.** `fs.realpath` is the single uniqueness canon: paths are stored canonicalized, so a symlink to an owned directory collides, and uniqueness is string equality of canonical paths.
-- **Membership is ownership plus a live cwd fact.** The record's ordered `sessionIds` is the ownership truth; the startup header index validates it, and `sessionIds` filters on read while the next mutation prunes durably.
+- **Membership is durable ownership.** The ordered `sessionIds` account remains unchanged when directories change or disappear; attaching checks Session existence and exclusive Workspace ownership.
 - **Header-only reads.** Bootstrap and attach validation read `SessionHeader` fields only; event bodies are never loaded.
 - **Two-write mutations with an explicit marker.** Create and delete persist a `pendingMutation` marker before the record/order pair can diverge, so startup completes exactly the interrupted operation and unmarked divergence fails loud as corruption.
 - **Serialized writes.** Registry operations run on one operation chain; entity mutations go through `table.update` on the domain write chain, stamping `updatedAt` and deciding membership at their chain slot.
@@ -114,7 +114,7 @@ Archive admission is a capability seam over two Host events this package declare
 
 ### Durable shape
 
-The registry opens the `workspace` domain (version 2): a `workspaces` table keyed by `WorkspaceId` plus one global state holding `workspaceIds` (the authoritative display order), `archivedSessionIds`, `pinnedSessionIds`, the optional `defaultWorkspaceId` first-use identity, and the optional `pendingMutation` marker. Archive and pin sets contain Session id strings, default to empty, and carry no per-entry objects or timestamps; the pin array keeps the most recently pinned id first. Archiving clears the pin in the same global-state write without changing Workspace membership. Unarchive runs no session-existence probe, because dropping an id from the set cannot introduce an unknown one, while archive verifies the session before adding it.
+The registry opens the `workspace` domain (version 3, accepting version 2): a `workspaces` table keyed by `WorkspaceId` plus one global state holding `workspaceIds` (the authoritative display order), `archivedSessionIds`, `pinnedSessionIds`, the optional `defaultWorkspaceId` first-use identity, and the optional `pendingMutation` marker. Archive and pin sets contain Session id strings, default to empty, and carry no per-entry objects or timestamps; the pin array keeps the most recently pinned id first. Archiving clears the pin in the same global-state write without changing Workspace membership. Unarchive runs no session-existence probe, because dropping an id from the set cannot introduce an unknown one, while archive verifies the session before adding it.
 
 ### Lifecycle
 
@@ -166,7 +166,7 @@ Independent of live requests: the package never touches a request prefix, so it 
 These limits define when the project list is a poor fit or needs special operational care. They are current package constraints, not a task backlog.
 
 - **Removal never deletes data** — removing a project leaves its folder, files, and session histories in place; those sessions become ungrouped, and session deletion or folder removal are separate, absent capabilities.
-- **A session joins only with a recorded directory** — a session belongs to a project only when its record carries a directory that resolves to the project's path; sessions without one stay ungrouped, and a session from another directory cannot be moved in.
+- **One Workspace owns each Session** — directories may be shared as secondary roots, but attaching a Session already owned by another Workspace rejects.
 - **External changes are seen late** — if another process deletes or damages a directory, the project reflects it only at the next refresh or restart.
 - **Archive and unarchive enforce different session checks** — a restore only drops an id from the archive set, so an entry whose session is gone still unarchives and leaves no unknown referent; a restore of an id that is not archived resolves without writing, while `archiveSession` rejects a session that is neither live nor persisted.
 - **The activity check and the archive write are not one atomic step** — a turn that starts between the providers' answer and the durable write is hidden while running, and every model step whose `agent/pre-step` precedes the write still runs with its tool calls; the API Session Controller's gate ends the first step proposed after the write as `blocked`, so the exposure is bounded by that write's latency, in practice one model step.
@@ -180,8 +180,8 @@ These limits define when the project list is a poor fit or needs special operati
 
 This Dev Note is working context for maintainers: open questions and directions that are not decided. It is explicitly non-authoritative — shipped behavior, limits, and accepted rationale live in the sections above, the package code, and the linked Agent Notes.
 
-#### Open: the `create(path, title?)` title parameter
+#### Directory configuration
 
-The `title` parameter has no production caller since the gateway's create-by-name branch was removed; a code TODO proposes dropping the parameter and its `@param` clause together ([note](../../../.agents/notes/archived/simplification/2026-07-31-one-route-to-add-a-workspace.md)).
+`create({ path, title?, additionalDirectories? })` saves one explicit primary directory and zero or more secondary directories. `create(path, title?)` remains accepted. `update(id, { path, title, additionalDirectories })` saves the complete configuration atomically. Newly added directories must exist; unchanged saved directories may remain missing. Canonical duplicates reject. Primary directories are unique across Workspaces; secondary directories may be shared. Directory updates affect new Sessions; existing Session configuration and ownership remain intact. Version 2 records read with an empty secondary directory list, retaining IDs, timestamps, manual order, archives, and pins. Successful writes stamp version 3; older readers reject that version.
 
 </details>

@@ -39,6 +39,17 @@ export function WorkspaceId(id: string): WorkspaceId {
   return id as WorkspaceId
 }
 
+/** 显式创建配置与已注册主要目录的配置不一致。 */
+export class WorkspaceConfigurationConflictError extends Error {
+  /**
+   * @param workspaceId - 已拥有主要目录的 Workspace。
+   */
+  constructor(readonly workspaceId: WorkspaceId) {
+    super(`workspace '${workspaceId}' configuration conflicts with the explicit create request`)
+    this.name = 'WorkspaceConfigurationConflictError'
+  }
+}
+
 /**
  * An archiveSession or pinSession request named a session neither live nor in
  * session persistence — a definite miss only; storage faults propagate as
@@ -176,17 +187,21 @@ export class WorkspaceRegistry extends Service {
   private readonly entities = new Map<WorkspaceId, WorkspaceEntity>()
   private readonly headers = new Map<SessionId, SessionHeader>()
   private readonly sessionPaths = new Map<SessionId, string>()
-  private readonly invalidSessionPaths = new Map<SessionId, string>()
   private operationTail: Promise<void> = Promise.resolve()
 
   private readonly host: WorkspaceEntityHost = {
-    table: () => this.requireTable(),
-    sessionPath: id => this.sessionPaths.get(id),
     readSessionHeader: id => this.readSessionHeader(id),
-    rememberSessionPath: (id, path) => {
-      this.sessionPaths.set(id, path)
-      this.invalidSessionPaths.delete(id)
-    },
+    update: (id, fn) => this.enqueueOperation(() => this.requireTable().update(id, (record) => {
+      const next = fn(record)
+      for (const sessionId of next.sessionIds) {
+        for (const [ownerId, owner] of this.requireTable().entries()) {
+          if (ownerId !== id && owner.sessionIds.includes(sessionId)) {
+            throw new Error(`session '${sessionId}' is already owned by workspace '${ownerId}'`)
+          }
+        }
+      }
+      return next
+    })),
   }
 
   constructor(ctx: Context) {
@@ -214,31 +229,82 @@ export class WorkspaceRegistry extends Service {
     await this.indexLiveSessions()
     this.validateStoredState(this.requireState())
     this.rebuildEntities()
-    this.reportFilteredCandidates()
   }
 
   /**
-   * Create or reuse a workspace for an existing directory. The fully qualified
-   * path is canonicalized through `fs.realpath`; a relative, nonexistent, or
-   * non-directory path rejects. Repeated calls for the same canonical path
-   * return the existing entity without changing its title.
-   * A newly created workspace is prepended to the durable registry order.
-   * Different canonical paths may share a display title.
-   * @param path - Existing directory to own, in a fully qualified path spelling.
-   * @param title - Display title used only when a new record is created.
-   * @returns the existing or newly durable workspace.
+   * 注册已存在的主要目录与附加目录；新记录置于注册表显示顺序首位。
+   * 旧路径调用幂等复用，显式配置与已有主要目录配置不同时拒绝。
+   * @param input - 主要目录或包含名称与附加目录的配置。
+   * @param title - 旧路径调用创建时使用的名称。
+   * @returns 新建或既有 Workspace。
    */
-  // TODO: `title` lost its last production caller when the gateway's
-  // create-by-name branch was deleted
-  // (.agents/notes/archived/simplification/2026-07-31-one-route-to-add-a-workspace.md);
-  // drop the parameter with its @param clause and the `create(path, title?)`
-  // lines in this package's README pair.
-  async create(path: string, title?: string): Promise<Workspace> {
-    const canonical = await realpathNormalize(path)
-    if (!(await stat(canonical)).isDirectory()) {
-      throw new Error(`cannot create a workspace at '${canonical}': path is not a directory`)
+  async create(
+    input: string | { path: string; title?: string; additionalDirectories?: readonly string[] }, title?: string,
+  ): Promise<Workspace> {
+    const request = typeof input === 'string' ? { path: input, title, additionalDirectories: [] } : input
+    return await this.enqueueOperation(async () => {
+      const configuration = await this.normalizeConfiguration(request.path, request.additionalDirectories ?? [])
+      if (typeof input !== 'string') {
+        const existing = [...this.entities.values()].find(entity => entity.path === configuration.path)
+        if (existing !== undefined && (
+          (input.title !== undefined && input.title !== existing.title)
+          || (input.additionalDirectories !== undefined && (
+            configuration.additionalDirectories.length !== existing.additionalDirectories.length
+            || configuration.additionalDirectories.some((path, index) => path !== existing.additionalDirectories[index])
+          ))
+        )) throw new WorkspaceConfigurationConflictError(existing.id)
+      }
+      return this.createCanonical(configuration.path, request.title, false, configuration.additionalDirectories)
+    })
+  }
+
+  /**
+   * 一次保存主要目录、名称与附加目录；既有缺失目录可以原样保留。
+   * @param id - Workspace 标识。
+   * @param configuration - 完整配置，主要目录必须明确提供。
+   * @returns 更新后的 Workspace；不存在的标识拒绝。
+   */
+  update(id: WorkspaceId, configuration: { path: string; title: string; additionalDirectories: readonly string[] }): Promise<Workspace> {
+    return this.enqueueOperation(async () => {
+      const entity = this.entities.get(id)
+      if (entity === undefined) throw new Error(`unknown workspace '${id}'`)
+      const directories = await this.normalizeConfiguration(configuration.path, configuration.additionalDirectories,
+        [entity.path, ...entity.additionalDirectories])
+      if ([...this.entities.values()].some(candidate => candidate.id !== id && candidate.path === directories.path)) {
+        throw new Error(`primary directory '${directories.path}' is already owned by another workspace`)
+      }
+      if (entity.path === directories.path && entity.title === configuration.title
+        && entity.additionalDirectories.length === directories.additionalDirectories.length
+        && entity.additionalDirectories.every((path, index) => path === directories.additionalDirectories[index])) return entity
+      const record = await this.requireTable().update(id, current => ({
+        ...current, ...directories, title: configuration.title, updatedAt: new Date().toISOString(),
+      }))
+      entity.replaceRecord(record)
+      return entity
+    })
+  }
+
+  /** 所有可访问目录重新规范化；仅已保存且缺失的目录保留原拼写，规范目录不允许重复。 */
+  private async normalizeConfiguration(
+    path: string, additionalDirectories: readonly string[], saved: readonly string[] = [],
+  ): Promise<{ path: string; additionalDirectories: string[] }> {
+    const directories: string[] = []
+    for (const requested of [path, ...additionalDirectories]) {
+      let canonical: string
+      try {
+        canonical = await realpathNormalize(requested)
+        if (!(await stat(canonical)).isDirectory()) {
+          throw new Error(`Workspace directory '${canonical}' is not a directory`)
+        }
+      } catch (error) {
+        if (!saved.includes(requested) || !(error instanceof Error) || !('code' in error)
+          || (error.code !== 'ENOENT' && error.code !== 'ENOTDIR')) throw error
+        canonical = requested
+      }
+      if (directories.includes(canonical)) throw new Error(`Workspace directory '${canonical}' is repeated`)
+      directories.push(canonical)
     }
-    return await this.enqueueOperation(() => this.createCanonical(canonical, title))
+    return { path: directories[0] as string, additionalDirectories: directories.slice(1) }
   }
 
   /**
@@ -282,10 +348,8 @@ export class WorkspaceRegistry extends Service {
   }
 
   /**
-   * Synchronous workspace projection in durable registry order. Every
-   * entity's `sessionIds` getter is already filtered by the startup/live
-   * canonical-cwd header index; this method performs no persistence reads.
-   * @returns a fresh ordered array of workspace entities.
+   * 按持久化注册表顺序返回 Workspace，保留 Session 账本，不读取持久层。
+   * @returns 独立的有序实体数组。
    */
   list(): Workspace[] {
     return this.requireState().workspaceIds.map((id) => {
@@ -505,7 +569,9 @@ export class WorkspaceRegistry extends Service {
     return undefined
   }
 
-  private async createCanonical(canonical: string, title?: string, firstUse = false): Promise<WorkspaceEntity> {
+  private async createCanonical(
+    canonical: string, title?: string, firstUse = false, additionalDirectories: string[] = [],
+  ): Promise<WorkspaceEntity> {
     for (const entity of this.entities.values()) {
       if (entity.path === canonical) return entity
     }
@@ -517,6 +583,7 @@ export class WorkspaceRegistry extends Service {
     const now = new Date().toISOString()
     const record: WorkspaceRecord = {
       path: canonical,
+      additionalDirectories,
       title: workspaceName,
       sessionIds: [],
       createdAt: now,
@@ -681,6 +748,7 @@ export class WorkspaceRegistry extends Service {
         const createdAt = new Date(group.newestAt).toISOString()
         const record: WorkspaceRecord = {
           path: group.path,
+          additionalDirectories: [],
           title: defaultWorkspaceTitle(group.path),
           sessionIds,
           createdAt,
@@ -761,6 +829,10 @@ export class WorkspaceRegistry extends Service {
     const paths = new Map<string, WorkspaceId>()
     const accounted = new Map<SessionId, WorkspaceId>()
     for (const [id, record] of table.entries()) {
+      const directories = [record.path, ...record.additionalDirectories]
+      if (new Set(directories).size !== directories.length) {
+        throw new Error(`workspace domain is inconsistent: workspace '${id}' repeats a directory`)
+      }
       const pathHolder = paths.get(record.path)
       if (pathHolder !== undefined) {
         throw new Error(
@@ -793,7 +865,6 @@ export class WorkspaceRegistry extends Service {
   private async replaceHeaderIndex(headers: readonly SessionHeader[]): Promise<void> {
     this.headers.clear()
     this.sessionPaths.clear()
-    this.invalidSessionPaths.clear()
     await this.indexHeaders(headers)
   }
 
@@ -805,19 +876,18 @@ export class WorkspaceRegistry extends Service {
     this.headers.set(header.id, header)
     this.sessionPaths.delete(header.id)
     if (header.cwd === undefined) {
-      this.invalidSessionPaths.set(header.id, 'header has no cwd')
       return
     }
     try {
       const path = await realpathNormalize(header.cwd)
       if (!(await stat(path)).isDirectory()) {
-        this.invalidSessionPaths.set(header.id, `cwd '${header.cwd}' is not a directory`)
         return
       }
       this.sessionPaths.set(header.id, path)
-      this.invalidSessionPaths.delete(header.id)
-    } catch {
-      this.invalidSessionPaths.set(header.id, `cwd '${header.cwd}' does not resolve`)
+    } catch (error) {
+      // 缺失或不可访问的目录不参与首次历史分组，已有归属保持不变。
+      void error
+      return
     }
   }
 
@@ -831,23 +901,6 @@ export class WorkspaceRegistry extends Service {
     const sessions = this.ctx.get('sessions')
     if (sessions === undefined) return
     await this.indexHeaders(sessions.list().map(session => session.header))
-  }
-
-  private reportFilteredCandidates(): void {
-    for (const entity of this.entities.values()) {
-      const record = this.requireTable().get(entity.id) as WorkspaceRecord
-      for (const sessionId of record.sessionIds) {
-        const path = this.sessionPaths.get(sessionId)
-        if (path === record.path) continue
-        const reason = this.invalidSessionPaths.get(sessionId)
-          ?? (this.headers.has(sessionId)
-            ? `canonical cwd '${path}' differs from workspace path '${record.path}'`
-            : 'session header is missing')
-        this.ctx.logger.warn(
-          `workspace '${entity.id}' filtered session '${sessionId}' from membership: ${reason}`,
-        )
-      }
-    }
   }
 
   private async readSessionHeader(id: SessionId): Promise<SessionHeader> {

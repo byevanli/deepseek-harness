@@ -1,9 +1,6 @@
 /**
- * One opened SQLite KV unit: prepared per-table statements over the
- * `u_<unit>_<table>` record tables plus this unit's row in the shared
- * `unit_globals` table. Each primitive is a single statement, so atomicity
- * comes from SQLite itself — no explicit transactions, and no write queue
- * (write ordering is the caller's responsibility per the KV contract).
+ * SQLite KV 单元，使用各记录表及共享 unit_globals 保存 JSON 值。
+ * 每次写入在同一事务中保存数据与当前单元版本；写入顺序由调用者保证。
  * @module @deepseek-ai/dsh-storage-sqlite/unit
  */
 
@@ -36,7 +33,7 @@ export class SqliteKvUnit implements KvUnit {
    * @param onClose - Backend callback releasing this unit's open-name slot.
    */
   constructor(
-    db: DatabaseSync,
+    private readonly db: DatabaseSync,
     private readonly descriptor: KvUnitDescriptor,
     private readonly onClose: () => void,
   ) {
@@ -98,13 +95,16 @@ export class SqliteKvUnit implements KvUnit {
 
   putRecord(table: string, key: string, value: unknown): Promise<void> {
     return this.settle(() => {
-      this.statementsFor(table).upsert.run(key, JSON.stringify(value))
+      const statements = this.statementsFor(table)
+      const encoded = JSON.stringify(value)
+      this.write(() => { statements.upsert.run(key, encoded) })
     })
   }
 
   deleteRecord(table: string, key: string): Promise<void> {
     return this.settle(() => {
-      this.statementsFor(table).remove.run(key)
+      const statements = this.statementsFor(table)
+      this.write(() => { statements.remove.run(key) })
     })
   }
 
@@ -113,8 +113,24 @@ export class SqliteKvUnit implements KvUnit {
       if (this.globalUpsert === undefined) {
         throw new Error(`kv unit '${this.descriptor.name}' declared no global slot`)
       }
-      this.globalUpsert.run(this.descriptor.name, JSON.stringify(value))
+      const encoded = JSON.stringify(value)
+      const statement = this.globalUpsert
+      this.write(() => { statement.run(this.descriptor.name, encoded) })
     })
+  }
+
+  /** 数据与版本一同提交，失败时保持旧数据及版本。 */
+  private write(operation: () => void): void {
+    this.db.exec('BEGIN')
+    try {
+      operation()
+      this.db.prepare('UPDATE units SET version = ? WHERE name = ?')
+        .run(this.descriptor.version, this.descriptor.name)
+      this.db.exec('COMMIT')
+    } catch (error) {
+      this.db.exec('ROLLBACK')
+      throw error
+    }
   }
 
   close(): Promise<void> {

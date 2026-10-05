@@ -84,6 +84,8 @@ With the built-in Windows runner and a skill registry, this provider registers t
 
 When the built ACL runner is absent, source launch pins the `tsx/esm/api` loader and TypeScript path mapping to this installation. The command's working directory and ambient `TSX_TSCONFIG_PATH` cannot select the runner's source dependencies.
 
+Local profiles grant the captured primary and additional directories. The Windows backend assigns each directory its own standing capability SID and keys private temporary grants by session and complete directory list; a later single-directory session receives no secondary-directory capability.
+
 ### Denial and runner-failure dialects
 
 Each runner's kernel speaks its own denial dialect, carried on every wrap as `denialSignatures`, and `runnerFailureRules` give each runner's fatal signature, so consumers classify a runner refusal before checking denial signatures. The exact strings and exit codes live in [`src/index.ts`](src/index.ts).

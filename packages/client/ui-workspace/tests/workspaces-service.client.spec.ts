@@ -3,9 +3,10 @@ import { Context } from '@deepseek-ai/cordis'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 import { afterEach, describe, expect, it, vi, type MockInstance } from 'vitest'
 import type {
-  ISessions, SessionListState, SessionReference, SessionSummary,
+  ISessions, SessionListState, SessionReference, SessionSummary, SessionProjectionSnapshot,
 } from '@deepseek-ai/dsh-api-session-controller/client'
 import { SessionCreateError } from '@deepseek-ai/dsh-api-session-controller/client'
+import type {} from '@deepseek-ai/dsh-sandbox-policy/types'
 import type { SubagentAddress } from '@deepseek-ai/dsh-subagent/client'
 import type {
   IWorkspaces, WorkspaceId, WorkspaceSnapshot, WorkspaceView,
@@ -56,6 +57,7 @@ function workspace(
   return {
     workspaceId: wid(id),
     path: `/w/${id}`,
+    additionalDirectories: [],
     title: id,
     sessionIds,
     createdAt,
@@ -79,11 +81,15 @@ function sessionState(
   summaries: readonly SessionSummary[] = [],
   phase: SessionListState['phase'] = 'ready',
 ): SessionListState {
+  const projectionsBySession: Record<SessionId, SessionProjectionSnapshot> = {}
+  for (const item of summaries) {
+    projectionsBySession[item.id] = { values: { sandboxDirectories: [] }, state: 'ready', error: null }
+  }
   return {
     ids: summaries.map(item => item.id),
     byId: Object.fromEntries(summaries.map(item => [item.id, item])),
     phase,
-    projectionsBySession: {},
+    projectionsBySession,
   }
 }
 
@@ -195,6 +201,7 @@ class FakeWorkspaces implements IWorkspaces {
   }
 
   declare readonly create: IWorkspaces['create']
+  declare readonly update: IWorkspaces['update']
   declare readonly rename: IWorkspaces['rename']
   declare readonly delete: IWorkspaces['delete']
   declare readonly insertBefore: IWorkspaces['insertBefore']
@@ -636,6 +643,17 @@ describe('UiWorkspaceService', () => {
     await b.uiWorkspace.pinSession(sid('three'))
     expect(b.view.getSnapshot().orderBy).toBe('updated')
     expect(b.view.getSnapshot().sessionOrderByAccount.a).toEqual(['three', 'one', 'two'])
+  })
+
+  it('creates a new blank when the saved additional directories differ from the old blank snapshot', async () => {
+    const sessions = sessionState([summary('old', { blank: true, cwd: '/w/a' })])
+    const b = bench({
+      sessions,
+      workspaces: workspaceState([{ ...workspace('a', [sid('old')]), additionalDirectories: ['/w/secondary'] }]),
+    })
+    await b.uiWorkspace.connectWorkspace(wid('a'))
+    expect(b.sessions.create).toHaveBeenCalledExactlyOnceWith({ workspaceId: wid('a') })
+    expect(b.sessions.list.getSnapshot().projectionsBySession[sid('old')]?.values.sandboxDirectories).toEqual([])
   })
 
   it('reuses only an unarchived member blank and coalesces concurrent creation', async () => {
